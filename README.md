@@ -147,7 +147,7 @@ Only needed if you want to change the mod.
 git clone --recursive https://github.com/scarlet20252025-cloud/Enshrouded.git
 cd Enshrouded
 build.bat            # -> build\wolfmount_layer.dll
-tools\run-tests.bat  # 9 suites, must all pass
+tools\run-tests.bat  # 10 suites, must all pass
 ```
 
 `--recursive` matters: Dear ImGui and the Vulkan headers are submodules pinned to
