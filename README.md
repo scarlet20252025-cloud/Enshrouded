@@ -143,21 +143,29 @@ what you would guess:
 
 Only needed if you want to change the mod.
 
-```
+```sh
+git clone --recursive https://github.com/scarlet20252025-cloud/Enshrouded.git
+cd Enshrouded
 build.bat            # -> build\wolfmount_layer.dll
 tools\run-tests.bat  # 9 suites, must all pass
 ```
 
-Toolchain (the one this was developed against):
+`--recursive` matters: Dear ImGui and the Vulkan headers are submodules pinned to
+exact tags (`v1.92.9b`, `v1.4.365`). If you forgot it, `git submodule update
+--init --recursive` fixes it.
 
-```
-clang : llvm-mingw-20261006-ucrt-x86_64
-target: x86_64-w64-windows-gnu
-```
+**Toolchain**: any clang that targets `x86_64-w64-windows-gnu`.
+[llvm-mingw](https://github.com/mstorsjo/llvm-mingw) is what this was developed
+against; WinLibs works too. `build.bat` finds clang on `PATH`, or takes
+`WOLFMOUNT_LLVM` as an override, and probes the toolchain's thread model so both
+win32-threaded and POSIX-threaded builds link.
 
-No MSVC, no CMake, no vcpkg. `build.bat` drives `clang` directly; the only
-third-party code is Dear ImGui and the Vulkan headers, both vendored under
-`third_party\`.
+No MSVC, no CMake, no vcpkg. `build.bat` drives `clang` directly.
+
+One thing that surprises people: `vulkan-1.a` is **not** in the repo. It is
+generated on first build from the system `vulkan-1.dll`'s own export table,
+because an import library has to match the loader the game actually loads, and a
+committed binary nobody can regenerate is a bad dependency to hand someone.
 
 ---
 

@@ -1867,3 +1867,90 @@ transformer，或者在其调用我们的目标 handler 时注入逻辑。
 - VEH 打印的模块名可能不准（本次 `faulting addr` 直接给出了
   `enshrouded.exe+0x9B8013`，是准确的）。
 - 控制台命令必须在发现崩溃后**立即**改成显式拒绝，不能留着一个会崩的入口。
+
+---
+
+## 发布到社区仓库（2026-10）
+
+用户建好仓库 `https://github.com/scarlet20252025-cloud/Enshrouded` 并要求
+「尽量参与到社区的开发生态中」。本轮把本地工程变成一个陌生人能克隆、能构建、
+能安装的仓库。
+
+### 网络：git 走代理，web_fetch 不走
+
+`git push` 首次失败：
+
+```
+fatal: unable to access '...': Connection timed out after 300003 milliseconds
+```
+
+但 `web_fetch` 访问 github.com 返回 200 —— 同一个环境，两个结果，说明问题不在网络。
+查明系统 IE 代理是 `127.0.0.1:7897`（`ProxyEnable=1`），而 **git 不读 IE 代理设置**，
+`git config --get-regexp http` 只有 `http.sslbackend schannel`。端口在监听、经代理取
+GitHub 返回 200。设 `git config http.proxy/https.proxy` 后 push 立刻成功。
+
+**教训**：`web_fetch` 可用不代表 `git` 可用，两者取代理的途径不同。遇到 git 超时先查
+`HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings` 的 `ProxyServer`。
+
+### `git add -A` 会试图提交 54 GB 游戏数据
+
+工作区 54,220 MB / 92,388 文件，其中 `tools/kfc/gamecopy` 49.4 GB（58 个 `.dat`）、
+`tools/kfc/unpacked` 4.67 GB（91,811 个模板 JSON）。这些都是从游戏解出来的派生物，
+既巨大又不属于我们可再分发的内容。`.gitignore` 之后实际提交 **331 文件 / 12.9 MB**。
+
+### third_party 两个库是完整 git clone，必须转成 submodule
+
+`git add` 把它们加成 gitlink（`160000`），克隆出来会是空目录。两者 remote 与 tag 都干净
+（imgui `v1.92.9b` @ `f1cc2ae`，Vulkan-Headers `v1.4.365` @ `c468508`），
+`git submodule add` 后 `.gitmodules` 正确。
+
+### ★ 全新克隆无法构建（本轮最重要的修复）
+
+干净克隆后 `build.bat` 直接失败：
+
+```
+lld: error: unable to find library -l:vulkan-1.a
+[ERROR] build failed
+```
+
+原因：`vulkan-1.a` 是 **系统 `vulkan-1.dll` 的 import library**，只存在于被 gitignore 的
+`build\`，仓库里没有任何脚本生成它。作者机器上一直在，所以从没暴露。
+
+修复：`build.bat` 首次构建时用 `llvm-readobj --coff-exports` 读系统 loader 的导出表 →
+`llvm-dlltool` 生成 `vulkan-1.a`。实测全新克隆零手工准备即可产出
+`build\wolfmount_layer.dll`（2,614,272 字节），`tools\run-tests.bat` 9/9 通过。
+
+### 硬编码工具链路径
+
+`set TOOLCHAIN=C:\Users\63526\...` 写死了作者的个人目录，别人必然构建不了。改为依次尝试
+`WOLFMOUNT_LLVM` 环境变量 → `PATH` 里的 clang → 本机 llvm-mingw。
+
+### 顺带修掉的两个可移植性问题
+
+- **GNU ld 不能写含非 ASCII 的路径**：检出目录是 `E:\DSH\肥鱼乐园\WolfMount`，
+  WinLibs 默认用 `ld`，报 `cannot open output file ...: No such file or directory`。
+  加 `-fuse-ld=lld` 解决 —— 这不是权限问题也不是引号问题。
+- **POSIX 线程模型需要 `-lpthread`**：WinLibs 是 POSIX/UCRT，`std::mutex` 与 libstdc++
+  的 guard 变量都走 pthreads，链接报 9 个未定义符号（`pthread_mutex_init` 等）；
+  llvm-mingw 是 win32 线程模型，根本没有这个库。改成探测
+  `..\x86_64-w64-mingw32\lib\libpthread.a` 是否存在再决定，两种工具链都能构建。
+
+### 免管理员的安装
+
+`install.bat` 原先以 HKLM 为正常路径、失败才提示 `sudo`。改为**只写 HKCU** ——
+Vulkan loader 同时扫 HKLM 与 HKCU 的 ImplicitLayers，per-user 注册完全够用，
+而「不用提权、删两个文件就能卸载」正是社区期待的形态。实测 HKLM 与 HKCU 同时登记
+同一 manifest 不会重复加载（loader 按 manifest 路径去重）。
+
+`cmd` 解析器扛不住内联 PowerShell（`[3]` 触发 `[3] was unexpected at this time.`），
+游戏定位逻辑因此拆到 `tools/find-game.ps1`：读 `SteamPath` 再遍历
+`libraryfolders.vdf` 的每个 `"path"`。本机 Steam 装在
+`C:\Program Files (x86)\Steam` 而游戏在 `E:\SteamLibrary`，正是必须遍历才能找到的情形。
+
+### 教训
+
+- **「在我机器上能构建」不算能构建**。`git clone` 到一个空目录、什么都不准备地跑一遍，
+  才是发布前唯一有意义的验收。这一步暴露了 import library、硬编码路径、链接器、
+  线程模型四个问题，全部是作者机器上不可见的。
+- 大仓库先量体积再 `git add`。`git add -A` 在含游戏解包产物的目录里是危险操作。
+- git 和 HTTP 客户端不共享代理配置。
