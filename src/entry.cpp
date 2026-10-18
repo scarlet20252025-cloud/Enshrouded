@@ -14,6 +14,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <cstdint>
 
 // ---------------------------------------------------------------------------
 // Required Vulkan layer entry point.

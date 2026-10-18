@@ -7,6 +7,7 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_layer.h>
+#include <cstdint>
 
 #ifdef WOLFMOUNT_EXPORTS
     #define WM_API __declspec(dllexport)

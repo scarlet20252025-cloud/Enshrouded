@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstring>
 #include <vector>
+#include <cstdint>
 
 struct Sec {
     char     name[9];

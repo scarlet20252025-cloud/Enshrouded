@@ -16,6 +16,7 @@
 
 #include "console.h"
 #include "entityops.h"
+#include <cstdint>
 
 // ---- ImGui stubs (Draw is never called; these only satisfy the linker) -----
 namespace ImGui {

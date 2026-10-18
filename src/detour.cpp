@@ -18,6 +18,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <cstdint>
 
 namespace wolfmount::detour {
 

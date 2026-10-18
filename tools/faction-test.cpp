@@ -13,6 +13,7 @@
 #include "faction.h"
 
 #include <cstdio>
+#include <cstdint>
 
 using namespace wolfmount::faction;
 

@@ -25,6 +25,7 @@
 #include <cstdio>
 #include <cstring>
 #include <vector>
+#include <cstdint>
 
 static int g_fail = 0;
 

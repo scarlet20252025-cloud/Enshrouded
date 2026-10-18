@@ -19,6 +19,7 @@
 #include "mod.h"
 #include "mount.h"
 #include "tame.h"
+#include <cstdint>
 
 namespace wolfmount::console {
 namespace {

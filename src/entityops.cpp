@@ -19,6 +19,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <cstdint>
 
 namespace wolfmount::entityops {
 

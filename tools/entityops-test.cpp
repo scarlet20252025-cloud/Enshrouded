@@ -14,6 +14,7 @@
 #include <cstring>
 
 #include "entityops.h"
+#include <cstdint>
 
 using namespace wolfmount;
 

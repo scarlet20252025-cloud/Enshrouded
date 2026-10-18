@@ -65,6 +65,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
 //  Mod logic
 // ---------------------------------------------------------------------------
 #include "mod.h"
+#include <cstdint>
 
 // ---------------------------------------------------------------------------
 //  Dispatch tables

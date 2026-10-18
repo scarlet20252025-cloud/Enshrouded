@@ -43,6 +43,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <cstdint>
 
 namespace wolfmount::gamehooks {
 

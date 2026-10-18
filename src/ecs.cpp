@@ -20,6 +20,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 namespace wolfmount::ecs {
 

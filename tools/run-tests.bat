@@ -39,7 +39,7 @@ echo.
 
 set FAILED=0
 
-echo --- [1/9] ECS probe self test -----------------------------------------
+echo --- [1/10] ECS probe self test -----------------------------------------
 set EXE=notfound
 for %%G in (
     "E:\SteamLibrary\steamapps\common\Enshrouded\enshrouded.exe"
@@ -65,7 +65,7 @@ if "%EXE%"=="notfound" (
 )
 echo.
 
-echo --- [2/9] taming rules ------------------------------------------------
+echo --- [2/10] taming rules ------------------------------------------------
 "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\tame-test.cpp" "%ROOT%\src\tame.cpp" ^
     -o "%BUILD%\tame-test.exe" >nul 2>&1
@@ -80,7 +80,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [3/9] combat follow plan -----------------------------------------
+echo --- [3/10] combat follow plan -----------------------------------------
 "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\follow-test.cpp" "%ROOT%\src\follow.cpp" ^
     -o "%BUILD%\follow-test.exe" >nul 2>&1
@@ -95,7 +95,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [4/9] mount state machine ----------------------------------------
+echo --- [4/10] mount state machine ----------------------------------------
 "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\mount-test.cpp" "%ROOT%\src\mount.cpp" ^
     -o "%BUILD%\mount-test.exe" >nul 2>&1
@@ -110,7 +110,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [5/9] detour engine ----------------------------------------------
+echo --- [5/10] detour engine ----------------------------------------------
 "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\detour-test.cpp" "%ROOT%\src\detour.cpp" ^
     -o "%BUILD%\detour-test.exe" >nul 2>&1
@@ -125,7 +125,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [6/9] console command honesty ------------------------------------
+echo --- [6/10] console command honesty ------------------------------------
 "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\console-test.cpp" "%ROOT%\src\console.cpp" ^
     -o "%BUILD%\console-test.exe" > "%BUILD%\console-build.out" 2>&1
@@ -146,7 +146,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [7/9] entity backend --------------------------------------------
+echo --- [7/10] entity backend --------------------------------------------
 "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\entityops-test.cpp" ^
     "%ROOT%\tools\gamehooks-stub.cpp" "%ROOT%\src\entityops.cpp" ^
@@ -168,7 +168,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [8/9] layer build -------------------------------------------------
+echo --- [8/10] layer build -------------------------------------------------
 call "%ROOT%\build.bat" > "%BUILD%\build.out" 2>&1
 if errorlevel 1 (
     echo     FAIL
@@ -179,7 +179,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [9/9] vulkan loader sees the layer -------------------------------
+echo --- [9/10] vulkan loader sees the layer -------------------------------
 cmd /c "%ROOT%\tools\build-smoketest.bat" > "%BUILD%\smoke.out" 2>&1
 findstr /C:"RESULT: PASS" "%BUILD%\smoke.out" > nul
 if errorlevel 1 (
@@ -192,6 +192,28 @@ if errorlevel 1 (
 echo.
 
 echo ============================================================
+echo --- [10/10] source hygiene -------------------------------------------
+REM  Angle brackets are redirection operators to cmd.exe, so <cstdint> in an
+REM  echo line must be escaped. Writing the literal characters reads as a
+REM  redirect into a file named cstdint, and cmd aborts the whole script.
+python "%ROOT%\tools\check_includes.py" > "%BUILD%\includes.out" 2>&1
+findstr /C:"RESULT: PASS" "%BUILD%\includes.out" > nul
+if errorlevel 1 (
+    echo     FAIL -- a file uses fixed-width ints without ^<cstdint^>
+    type "%BUILD%\includes.out"
+    set FAILED=1
+) else (
+    echo     PASS -- every uintN_t user includes ^<cstdint^>
+)
+python "%ROOT%\tools\check_dup_includes.py" > "%BUILD%\dupinc.out" 2>&1
+findstr /C:"RESULT: PASS" "%BUILD%\dupinc.out" > nul
+if errorlevel 1 (
+    echo     FAIL -- duplicate ^<cstdint^> includes
+    type "%BUILD%\dupinc.out"
+    set FAILED=1
+)
+echo.
+
 if "%FAILED%"=="0" (
     echo  ALL TESTS PASSED
 ) else (

@@ -23,6 +23,7 @@
 #include <cstring>
 #include <mutex>
 #include <unordered_map>
+#include <cstdint>
 
 namespace wolfmount::reflect {
 

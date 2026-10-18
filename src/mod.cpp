@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <cstdint>
 
 namespace wolfmount::mod {
 

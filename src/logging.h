@@ -13,6 +13,7 @@
 #include <windows.h>
 
 #include <cstdarg>
+#include <cstddef>
 #include <cstdio>
 #include <string>
 
