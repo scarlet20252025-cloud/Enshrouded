@@ -19,6 +19,7 @@
 #include "gamedata.h"
 
 #include <atomic>
+#include <cstring>
 #include <mutex>
 #include <vector>
 

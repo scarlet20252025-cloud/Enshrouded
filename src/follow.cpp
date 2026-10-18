@@ -30,6 +30,7 @@
 #include "gamedata.h"
 
 #include <cstdio>
+#include <cstring>
 
 namespace wolfmount::follow {
 
