@@ -935,6 +935,44 @@ void DescribeAddress(void* addr, char* out, size_t n) {
     }
 }
 
+// The game itself probes memory in tight loops and raises access violations it
+// then handles; the first production log held 21万 exception dumps (85 MB, 91%
+// of the file) purely from those. Keep one line per site, capped, and a total.
+std::atomic<uint32_t> g_vehSeen{0};
+std::atomic<uint32_t> g_vehPrinted{0};
+
+void VehLogSite(const EXCEPTION_POINTERS* info, DWORD code, const char* where,
+                const char* hex) {
+    const uint32_t n = g_vehSeen.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (!g_log) return;
+    if (n > 64) return;                       // first 64 sites are the signal
+    const uint32_t k = g_vehPrinted.fetch_add(1, std::memory_order_relaxed);
+    fprintf(g_log, "[wolfmount] *** EXCEPTION #%u 0x%08lX at %s [%s]\n",
+            n, (unsigned long)code, where, hex);
+    if (k < 16) {
+        if (code == EXCEPTION_ACCESS_VIOLATION &&
+            info->ExceptionRecord->NumberParameters >= 2) {
+            const char* kind = "read";
+            if (info->ExceptionRecord->ExceptionInformation[0] == 1) kind = "write";
+            else if (info->ExceptionRecord->ExceptionInformation[0] == 8) kind = "execute";
+            fprintf(g_log, "[wolfmount]     access        : %s at %p\n", kind,
+                    (void*)info->ExceptionRecord->ExceptionInformation[1]);
+        }
+        if (info->ContextRecord) {
+            fprintf(g_log, "[wolfmount]     rip=%p rsp=%p rbp=%p\n",
+                    (void*)info->ContextRecord->Rip,
+                    (void*)info->ContextRecord->Rsp,
+                    (void*)info->ContextRecord->Rbp);
+            fprintf(g_log, "[wolfmount]     rcx=%p rdx=%p r8=%p r9=%p\n",
+                    (void*)info->ContextRecord->Rcx,
+                    (void*)info->ContextRecord->Rdx,
+                    (void*)info->ContextRecord->R8,
+                    (void*)info->ContextRecord->R9);
+        }
+        fflush(g_log);
+    }
+}
+
 LONG CALLBACK VehHandler(EXCEPTION_POINTERS* info) {
     if (!info || !info->ExceptionRecord) return EXCEPTION_CONTINUE_SEARCH;
 
@@ -963,33 +1001,7 @@ LONG CALLBACK VehHandler(EXCEPTION_POINTERS* info) {
         p += (size_t)snprintf(hex + p, sizeof(hex) - p, "%02X ", codeBytes[i]);
     }
 
-    if (g_log) {
-        fprintf(g_log, "[wolfmount] *** EXCEPTION 0x%08lX\n", (unsigned long)code);
-        fprintf(g_log, "[wolfmount]     faulting addr : %s\n", where);
-        fprintf(g_log, "[wolfmount]     raw address   : %p\n",
-                info->ExceptionRecord->ExceptionAddress);
-        fprintf(g_log, "[wolfmount]     instr bytes   : %s\n", hex);
-        if (code == EXCEPTION_ACCESS_VIOLATION &&
-            info->ExceptionRecord->NumberParameters >= 2) {
-            const char* kind = "read";
-            if (info->ExceptionRecord->ExceptionInformation[0] == 1) kind = "write";
-            else if (info->ExceptionRecord->ExceptionInformation[0] == 8) kind = "execute";
-            fprintf(g_log, "[wolfmount]     access        : %s at %p\n", kind,
-                    (void*)info->ExceptionRecord->ExceptionInformation[1]);
-        }
-        if (info->ContextRecord) {
-            fprintf(g_log, "[wolfmount]     rip=%p rsp=%p rbp=%p\n",
-                    (void*)info->ContextRecord->Rip,
-                    (void*)info->ContextRecord->Rsp,
-                    (void*)info->ContextRecord->Rbp);
-            fprintf(g_log, "[wolfmount]     rcx=%p rdx=%p r8=%p r9=%p\n",
-                    (void*)info->ContextRecord->Rcx,
-                    (void*)info->ContextRecord->Rdx,
-                    (void*)info->ContextRecord->R8,
-                    (void*)info->ContextRecord->R9);
-        }
-        fflush(g_log);
-    }
+    VehLogSite(info, code, where, hex);
 
     return EXCEPTION_CONTINUE_SEARCH;   // let the game's own handler run
 }

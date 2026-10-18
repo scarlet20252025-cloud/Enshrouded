@@ -235,23 +235,50 @@ void PollInput() {
         (void)KeyWentDown(g_settings.summonKey, summonWasDown);
     }
 
-    // The entity manager only becomes findable once a world is loaded, and the
-    // world context pointer changes on a map change. Probing is bounded and
-    // read-guarded, but it is not free, so retry on a slow cadence rather than
-    // every frame -- and stop once it succeeds.
+    // -------------------------------------------------------------------------
+    //  Entity pipeline
+    //
+    //  Three stages, each gated on the previous one having produced something
+    //  real. Every stage logs once when it completes, so a run's log says how
+    //  far the pipeline got without anyone having to open the console.
+    //
+    //      1. resolve manager      needs a loaded world
+    //      2. discover faction     needs a populated entity table (>=32)
+    //      3. snapshot             needs the faction slot
+    //
+    //  Caution: probing is read-guarded and bounded, but it is not free, so each
+    //  stage retries on a slow cadence rather than every frame.
+    // -------------------------------------------------------------------------
     static int entityProbeFrames = 0;
+    static bool snapshotDone = false;
+    ++entityProbeFrames;
+
     if (!entityops::HasManager()) {
-        if ((entityProbeFrames++ % 120) == 0) {
+        if ((entityProbeFrames % 120) == 0) {
             entityops::ResolveManager();
         }
     } else if (entityops::FactionSlot() < 0) {
-        // Once the map is populated there are enough entities to identify the
-        // Faction slot by its value distribution. Doing it here rather than on
-        // first console use means the summon key works without the console.
-        if ((entityProbeFrames++ % 240) == 0 &&
+        // Faction discovery is expensive (entities x 640 slot reads), so on
+        // failure back off exponentially instead of retrying forever at a fixed
+        // cadence. Two failed attempts are already enough to know the shape
+        // test needs changing; hammering it just costs frames.
+        static int factionAttempts = 0;
+        static int factionCooldown = 240;
+        static int factionFrames = 0;
+        ++factionFrames;
+        if (factionAttempts < 4 && factionFrames >= factionCooldown &&
             entityops::EntityCount() >= 32) {
+            factionFrames = 0;
+            ++factionAttempts;
+            factionCooldown = 240 * (factionAttempts + 1);
             entityops::DiscoverFactionSlot();
         }
+    } else if (!snapshotDone && (entityProbeFrames % 300) == 0) {
+        // Stage 3. This is read-only: it proves the faction slot is usable for
+        // reading before anything tries to write through it, and it records the
+        // one thing that is otherwise invisible -- whether the player and any
+        // wild beasts are visible through the discovered slot.
+        snapshotDone = entityops::LogEntitySnapshot();
     }
 }
 
@@ -324,40 +351,50 @@ bool OnWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 //  the game (verified 2026-10-18, fault at rva 0x9B8013). It has to be driven
 //  by the game's own program dispatcher, which is still to be hooked.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+//  Summon
+//
+//  HISTORY — why this does not re-target a wolf any more.
+//  The original design was "find the last wild beast the player met and tame
+//  it". That cannot work in an open world: the game streams entities in and out
+//  around the player, so leaving the area destroys the entity and its id, and
+//  the remembered id then refers to nothing. A production session showed
+//  exactly this — `last wild wolf : (none seen)` while the player was standing
+//  in a forest.
+//
+//  The spawn factory (rva 0x97B790) takes a template GUID, not a position, and
+//  does not require any wolf to be nearby, so summoning means "create one from
+//  the wolf template". Position is applied afterwards via MoveEntity.
+// ---------------------------------------------------------------------------
 void RequestSummon() {
-    const auto& probe = wolfmount::ecs::Probe();
+    using namespace wolfmount;
 
-    if (!probe.hasAdminSpawnCommand) {
-        g_lastAction = "no spawn command in this build";
+    if (!entityops::ResolveManager()) {
+        g_lastAction = "entity manager not resolved yet - enter a world";
         return;
     }
 
-    // There is still no verified dispatcher that accepts an AdminSpawnCommand
-    // from outside the game's own input path, so we cannot conjure a wolf out
-    // of thin air yet.
-    if (!wolfmount::gamehooks::HasWorldContext()) {
-        g_lastAction = "等待世界上下文(进世界后自动获取)";
+    const entityops::NamedTemplate* t = entityops::LookupTemplate("wolf");
+    if (!t) {
+        g_lastAction = "wolf template missing from the built-in table";
+        return;
+    }
+    uint8_t guid[16] = {0};
+    if (!entityops::ParseGuid(t->guid, guid)) {
+        g_lastAction = "wolf template GUID does not parse";
         return;
     }
 
-    const uint32_t wolf = wolfmount::gamehooks::LastWildBeast();
-    if (!wolf) {
-        g_lastAction = "还没遇到过野狼 - 先用火把打一下狼";
+    const int made = entityops::SpawnNearPlayer(guid, 1, 3.0, 1);
+    if (made <= 0) {
+        // Say what actually failed instead of implying a wolf is on its way.
+        g_lastAction = "spawn factory produced no live wolf (see the log)";
         return;
     }
 
     g_summonCount++;
-
-    // The game's own IsTame writer. Note a wolf has no Animal/Wildlife
-    // component, so the engine's taming pipeline has nothing to act on yet —
-    // that needs the dispatcher work above.
-    if (!wolfmount::gamehooks::TameEntity(wolf, true)) {
-        g_lastAction = "驯化写入排队失败";
-        return;
-    }
-
     static char buf[96];
-    snprintf(buf, sizeof(buf), "已发出驯化写入: entity %u", wolf);
+    snprintf(buf, sizeof(buf), "spawned %d wolf from the template", made);
     g_lastAction = buf;
 }
 
@@ -502,13 +539,17 @@ void DrawMenu() {
             ImGui::TextDisabled("实体表: 未获取");
         }
 
+        // The summon path no longer depends on having met a wolf: an open world
+        // streams entities in and out, so a remembered wild-beast id is gone as
+        // soon as the player walks away. Summon spawns from the wolf template
+        // instead, so this line is informational only.
         const uint32_t wolf = wolfmount::gamehooks::LastWildBeast();
         ImGui::Text("最近识别的野狼: ");
         ImGui::SameLine();
         if (wolf) {
             ImGui::TextColored(ImVec4(0.4f,1.0f,0.4f,1.0f), "entity %u", wolf);
         } else {
-            ImGui::TextDisabled("尚未遇到(需先用火把打狼)");
+            ImGui::TextDisabled("附近没有(不影响召唤)");
         }
 
         // wildlife 改造 (M6): the engine's own enemy->wildlife program.

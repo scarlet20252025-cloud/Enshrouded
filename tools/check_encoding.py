@@ -1,8 +1,11 @@
 r"""ASCII-only diagnostic: report lines in src/mod.cpp still containing U+FFFD."""
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import io
 import sys
 
-PATH = r"E:\DSH\肥鱼乐园\WolfMount\src\mod.cpp"
+PATH = os.path.join(ROOT, "src", "mod.cpp")
 
 
 def main():

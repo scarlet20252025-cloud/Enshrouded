@@ -85,6 +85,7 @@ uintptr_t ComponentAddress(uint32_t, int, uint16_t*) { return 0; }
 uint32_t SpawnAt(const uint8_t[16], double, double, double, uint32_t) { return 0; }
 int  SpawnNearPlayer(const uint8_t[16], int, double, uint32_t) { return 0; }
 void DumpEntity(uint32_t, int) {}
+void DumpPlayerPosition() {}
 
 const uint8_t kPlayerGuid[16] = {0};
 

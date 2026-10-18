@@ -48,11 +48,24 @@ Everything above is a composition of shipped systems.
 | Locate the world context, entity manager, live entities | **works** (verified: 1301 entities in a loaded world) |
 | Discover the `Faction` component slot at runtime | **works** |
 | Spawn an entity from a template GUID | implemented, **not yet verified in game** |
+| Place a spawned entity at a chosen position | implemented (post-spawn transform write), **not yet verified in game** |
 | Write an entity's faction (read-back verified) | implemented, **not yet verified in game** |
 | Tame a wolf with the torch | **not implemented** — see below |
-| Summon bound to `Y` | partial — the request path exists |
+| Summon bound to `Y` | implemented as "spawn from the wolf template", **not yet verified in game** |
 | Riding | **not implemented** — it is a local state machine only |
 | Wolf fights alongside you | **not implemented** |
+
+### Why summon does not re-target a wolf
+
+An earlier design remembered the last wild beast the player met and tamed it.
+That cannot work in an open world: the game streams entities in and out around
+the player, so walking away destroys the entity and its id, and the remembered
+id then refers to nothing. A production session showed exactly this —
+`last wild wolf : (none seen)` while standing in a forest.
+
+Summon therefore creates one from the wolf template (`Create` at RVA 0x97B790
+takes a GUID, not a position, and needs no wolf nearby) and moves it into place
+afterwards.
 
 ### Why taming is not done
 

@@ -278,6 +278,13 @@ Result CmdSpawn(const std::vector<std::string>& a) {
     }
     Emit("spawn: %d live entit%s from %s", made, made == 1 ? "y" : "ies", pretty);
     if (named) Emit("       template %s", named->name);
+    // Do not let the user believe the requested distance is guaranteed. The
+    // factory (rva 0x97B790) ignores desc+0x18 and therefore ignores any
+    // position we hand it; the entity first appears wherever the template says
+    // and is then moved. If that move fails the template position stands.
+    Emit("       position: moved to ~%.1f m from you AFTER spawning", dist);
+    Emit("       (the factory ignores the position we pass, so the template's");
+    Emit("        own position is the fallback if the move does not stick)");
     return Result::Ok;
 }
 
@@ -320,6 +327,28 @@ Result CmdMount(const std::vector<std::string>& a) {
 
 Result CmdHelp(const std::vector<std::string>&);
 
+Result CmdPos(const std::vector<std::string>&) {
+    if (!entityops::HasManager()) {
+        Emit("pos: entity manager not found — enter a world first");
+        return Result::NotAvailable;
+    }
+    if (entityops::FactionSlot() < 0) {
+        Emit("pos: faction slot not identified yet");
+        return Result::NotAvailable;
+    }
+    // The dump goes to the log; echo the human-readable part here too.
+    entityops::DumpPlayerPosition();
+
+    const uint32_t pid = entityops::PlayerEntityId();
+    double px = 0, py = 0, pz = 0;
+    const bool ok = entityops::PlayerPosition(&px, &py, &pz);
+    Emit("pos: player entity = %u", pid);
+    if (ok) Emit("pos: player position = %.2f, %.2f, %.2f", px, py, pz);
+    else    Emit("pos: player position = UNAVAILABLE");
+    Emit("pos: details for every Faction==Player entity are in the log");
+    return Result::Ok;
+}
+
 struct Command {
     const char* name;
     const char* help;
@@ -332,6 +361,7 @@ const Command kCommands[] = {
     {"faction", "faction <entityId> [value] — set Faction",             CmdFaction},
     {"spawn",   "spawn <template> — request a spawn (backend pending)",  CmdSpawn},
     {"summon",  "summon — call the mod's own summon path",              CmdSummon},
+    {"pos",     "pos — diagnose why the player position is (un)readable", CmdPos},
     {"transform","transform — run the engine's enemy->wildlife program", CmdTransform},
     {"mount",   "mount [off] — toggle the mount state machine",         CmdMount},
     {"help",    "help — list commands",                                 CmdHelp},

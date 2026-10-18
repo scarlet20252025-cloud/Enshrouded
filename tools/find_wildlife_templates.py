@@ -7,8 +7,9 @@ templates would we need to clone to get a tameable canine?
 import json
 import os
 
-BASE = (r"E:\DSH\肥鱼乐园\WolfMount\tools\kfc\unpacked"
-        r"\TemplateResource")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+BASE = os.path.join(ROOT, "tools", "kfc", "unpacked", "TemplateResource")
 
 MARKERS = [
     "keen::ecs::Animal",

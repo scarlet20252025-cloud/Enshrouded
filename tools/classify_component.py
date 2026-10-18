@@ -8,12 +8,15 @@ Classifies every .text reference to a component's qualifiedHash as either:
              array submitted wholesale
   OTHER    - inlined into a larger prebuilt buffer
 """
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import json
 import struct
 import sys
 
 EXE = r"E:\SteamLibrary\steamapps\common\Enshrouded\enshrouded.exe"
-REFL = r"E:\DSH\肥鱼乐园\WolfMount\tools\kfc\reflection_data.json"
+REFL = os.path.join(ROOT, "tools", "kfc", "reflection_data.json")
 IMAGE = 0x140000000
 
 ENQUEUE = 0x140952400

@@ -366,6 +366,83 @@ This is in `DiscoverFactionSlot()` in `src\entityops.cpp`, and it works because
 of a property worth remembering: **you can identify a component by its value
 distribution instead of by its name.**
 
+The same trick places an entity. `CurrentTransform` is 56 bytes: three int64
+fixed-point coordinates (1 metre = 2^32) then four float32s. A slot with stride
+56 whose three int64s decode to a finite position inside the map is that
+component — no name needed. That is `FindTransformSlot()` and `MoveEntity()` in
+`src\entityops.cpp`.
+
+---
+
+## 5a. The spawn factory ignores the position you give it
+
+This is the trap that costs the most if you trust a community mod's field
+layout. The entity factory is at **rva 0x97B790** and takes:
+
+```
+Create(void* manager /*rcx*/, void* arg2, void* desc /*r8*/, void* arg4)
+```
+
+`.pdata` splits it into **three** consecutive runtime functions
+(`0x97B790-0x97B8BC` 300 B, `0x97B8BC-0x97B9EB` 303 B, `0x97B9EB-0x97D358`
+6509 B). Disassembling only the first one is how you get the layout wrong —
+use `tools\pdata_range.py` to see all the entries overlapping a window.
+
+Proven by reading every instruction in the whole 1641-instruction span:
+
+```
+rva 0097B790  movq %r9,0x20(%rsp)   ; arg4
+rva 0097B795  movq %r8,0x18(%rsp)   ; arg3 = desc
+rva 0097B79A  movl %edx,0x10(%rsp)  ; arg2
+rva 0097B79E  movq %rcx,0x8(%rsp)   ; arg1 = manager
+rva 0097B7A3..A7  4 pushes
+rva 0097B7A9  leaq -0xdd8(%rsp),%rbp
+rva 0097B7B1  subq $0xed8,%rsp
+rva 0097B7B8  movq (%rcx),%rsi      ; [manager] must be the world
+```
+
+The spill at entry `rsp+0x18` lands at `rsp_after + 0xF10` (equivalently
+`rbp + 0x138`) after the frame is built. **Zero instructions in the entire span
+read either slot.** So `desc` is only ever touched through the still-live `%r8`,
+and the complete set of `%r8` dereferences belonging to the original arg3 is:
+
+```
+rva 0097B7BB  49 8d 40 20        leaq   0x20(%r8),%rax   ; desc+0x20 component count
+rva 0097B8A9  41 0f 10 40 04     movups 0x4(%r8),%xmm0   ; desc+0x04 16-byte GUID
+rva 0097B8CC  49 8d 78 04        leaq   0x4(%r8),%rdi    ; desc+0x04 -> template loader
+```
+
+Everything else that looks like `%r8` use is a *different* `%r8`, redefined by
+`leaq -0x30(%rbp),%r8`, `leaq 0x70(%rsp),%r8`, `movq %r14,%r8`,
+`movq -0x40(%rbp),%r8`, and so on. `tools\prove_desc18_unused.py` prints the
+full list.
+
+**Therefore `desc+0x18` — the component array pointer — is never read.** The
+components, including the position, come from the template itself:
+
+```
+rva 0097BB9F  movq 0xe10(%rbp),%rdx   ; the TemplateResource object
+rva ...       leaq 0x20(%rdx),%rax
+rva ...       movq 0x18(%rdx),%r13 ; addq %rsi,%r13   ; rsi += 0x18 each entry
+```
+
+`desc+4` is handed to `rva 0x94C030`, which initialises the structure with the
+constant `0x39768775` — the `keen::ecs::TemplateResource` type id found in the
+KFC data. That is what confirms `desc+0x04` is the template key.
+
+**What this means for you**: if you pass a `CurrentTransform` at a chosen
+coordinate, the entity appears wherever the template says and your coordinate is
+silently discarded. There is no error. The mod then has to *move* the entity by
+writing its `CurrentTransform` slot after the fact, which is what
+`MoveEntity()` does.
+
+**Why the community mod still works**: M182's calibration
+(`spawner.rs:1074-1082`) runs in `after()` — *after* `Create` has returned — and
+reads back the array it wrote to `desc+0x18` itself, purely to work out which
+slot index the template's transform ended up in. It never needs the game to read
+that array. If you copy that code without understanding that, you will conclude
+`desc+0x18` is live and spend a day on it.
+
 ---
 
 ## 6. Sending events
@@ -525,6 +602,10 @@ check window focus before you check your code.
 | `tools\classify_component.py` | which write path a given component actually uses |
 | `tools\find_wildlife_templates.py` | which templates carry `Animal`/`Wildlife` |
 | `tools\diff_templates.py` | component-set diff between two templates |
+| `tools\pdata_range.py` | every `.pdata` runtime function overlapping a VA window |
+| `tools\prove_desc18_unused.py` | the full `%r8` dereference list proving `desc+0x18` is dead |
+| `tools\trace_desc_reload.py` | where a prologue spill lands after a frame shift |
+| `tools\verify_deployed_strings.py` | confirm the deployed DLL really contains the log lines you fixed |
 | `tools\wdisasm.py` | small x86-64 disassembler wrapper |
 
 Do not name a script in `tools\` after a standard-library module. A file called

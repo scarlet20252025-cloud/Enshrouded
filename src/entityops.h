@@ -108,6 +108,19 @@ bool PlayerPosition(double* x, double* y, double* z);
 // big predators. Returns the number written.
 int ListWildBeasts(uint32_t* out, int max);
 
+// Log a read-only census: how many entities are live, how the discovered faction
+// slot distributes across them, whether the player is visible through it, and
+// how many wild beasts are present.
+//
+// Returns true only when the slot demonstrably reads the Player faction with no
+// out-of-range values, i.e. when it is safe to write through. That is the
+// difference between "we found a byte" and "we found Faction", and it is the
+// check that was missing when an earlier Enqueue-based faction write looked
+// successful while changing nothing.
+//
+// Read-only. Safe to call from the render thread.
+bool LogEntitySnapshot();
+
 // ---------------------------------------------------------------------------
 //  Component helpers
 // ---------------------------------------------------------------------------
@@ -155,17 +168,41 @@ struct NamedTemplate {
 const NamedTemplate* Templates(int* count);
 const NamedTemplate* LookupTemplate(const char* name);
 
-// Spawn one entity from a template GUID at a world position (metres).
+// Spawn one entity from a template GUID.
 //
-// Returns the new entity id, or 0 on failure. The spawn carries a
-// CurrentTransform and an OverrideLevel, which is the minimum the community mod
-// found to be sufficient for an enemy template.
+// Returns the new entity id, or 0 on failure.
+//
+// IMPORTANT — the x/y/z arguments DO NOT position the entity. The factory
+// (RVA 0x97B790) reads exactly two fields of the descriptor we pass it:
+//     desc+0x04  16-byte template GUID    (movups 0x4(%r8),%xmm0 at 0x97B8A9)
+//     desc+0x20  component count          (leaq 0x20(%r8),%rax at 0x97B7BB)
+// It never reads desc+0x18, so the component array we attach there is ignored
+// and the spawned entity's components — including its position — come entirely
+// from the template. To place an entity, spawn it and then move it by writing
+// its CurrentTransform slot directly; see MoveEntity() below.
 //
 // This calls the game's own entity factory at RVA 0x97B790 directly. It does
 // not need the manager to have been resolved: the factory takes the manager as
 // its first argument, so ResolveManager() must have succeeded first.
 uint32_t SpawnAt(const uint8_t guid[16], double x, double y, double z,
                  uint32_t level);
+
+// Write an entity's position in metres by overwriting its transform slot, after
+// locating that slot by shape.
+//
+// This is the only way to place an entity: the spawn factory ignores the
+// position we hand it. Two encodings exist and the found slot decides which is
+// used, so a 32-byte float transform is never written as fixed-point:
+//     keen::ecs::CurrentTransform  56 B  three sint64 fixed-point (1/2^32 m)
+//     keen::ecs::Transform         32 B  float3 in metres
+//
+// Returns true only after a read-back confirms the write stuck.
+bool MoveEntity(uint32_t entityId, double x, double y, double z);
+
+// Find the transform slot for an entity and report its width through strideOut
+// (56 for the fixed-point form, 32 for the float form). Public so diagnostics
+// can report which encoding is in play without duplicating the search.
+int FindTransformSlotEx(uint32_t entityId, uint16_t* strideOut);
 
 // Convenience: spawn `count` wolves around the player at `distance` metres.
 // Returns how many actually appeared (verified by looking up the returned ids).
@@ -179,5 +216,11 @@ int SpawnNearPlayer(const uint8_t guid[16], int count, double distance,
 // Dump one entity's component slots to the log (index, stride, first bytes).
 // Bounded: only the first `maxSlots` slots, and only the first few calls.
 void DumpEntity(uint32_t entityId, int maxSlots);
+
+// One-shot answer to "why can't the player's position be read". Logs every
+// entity that currently reads Faction == Player, and for each 56-byte component
+// on them the raw int64 triple plus its conversion to metres. Bounded to a few
+// entities and a few slots so it is safe to call from the console.
+void DumpPlayerPosition();
 
 } // namespace wolfmount::entityops

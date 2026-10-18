@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Diff the component sets of two KFC TemplateResource JSONs."""
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import json
 import sys
 
-BASE = r"E:\DSH\肥鱼乐园\WolfMount\tools\kfc\unpacked\TemplateResource"
+BASE = os.path.join(ROOT, "tools", "kfc", "unpacked", "TemplateResource")
 
 WOLF = "478381c5-585f-4264-b373-dbb1ea596eca_39768775_0.json"
 TAME = "08365b0a-2205-45d7-8f02-fecabd5d32db_39768775_0.json"

@@ -4,10 +4,13 @@ Each thunk is `lea rax, [rip+d] ; ret`, i.e. a getter for a static descriptor.
 The d values resolve to the .rdata records we found. This is the behaviour
 registry accessor table.
 """
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import struct
 import sys
 
-sys.path.insert(0, r"E:\DSH\肥鱼乐园\WolfMount\tools")
+sys.path.insert(0, os.path.join(ROOT, "tools"))
 import scanrefs as S  # noqa: E402
 
 

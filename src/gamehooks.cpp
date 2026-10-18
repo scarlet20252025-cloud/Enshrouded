@@ -229,7 +229,14 @@ void* DetourSendEvent(void* buffer, uint32_t value, uint32_t typeTag, size_t siz
     //    Logging every call is the only way to learn what actually uses it.
     static std::atomic<int> s_sendCount{0};
     const int n = s_sendCount.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (n <= 60 || (n % 200) == 0) {
+    // Decaying sample (see FlushPendingComp). SendEvent is far rarer than
+    // Enqueue but still ran 17.6k times in one session.
+    bool want = false;
+    if (n <= 60)           want = true;
+    else if (n < 5000)     want = (n % 200) == 0;
+    else if (n < 50000)    want = (n % 2000) == 0;
+    else                   want = (n % 20000) == 0;
+    if (want) {
         WM_MOD_LOG("[wolfmount] SEND #%d buf=%p value=%u tag=%u size=%u -> %p",
                    n, buffer, value, (unsigned)typeTag, (unsigned)size, record);
     }
@@ -305,11 +312,19 @@ void FlushPendingComp() {
     // Only the first few hundred are interesting, and only for named types —
     // the reflection table turns the hash into the component's qualified name,
     // which is what makes this trace readable.
-    // Sampled trace. Logging every record stalled the game (25 MB of log
-    // during world load made the render loop fail to present, and the user saw
-    // "game creation failed"). The counters above stay accurate; only the
-    // printf volume is bounded: first 200 records, then every 200th.
-    if (n <= 200 || (n % 200) == 0) {
+    //
+    // Sampled trace, and the sampling must DECAY. A flat "every 200th" is not
+    // enough: Enqueue runs ~5000 times/second, so every-200th still produced
+    // ~25 lines/s forever (the first production log hit 93 MB). The rule below
+    // logs the first 200 records, then 1-in-1000 up to 10k, 1-in-10k to 100k,
+    // 1-in-100k after that — a bounded logarithmic trace that still shows new
+    // component types whenever they appear.
+    bool want = false;
+    if (n <= 200)          want = true;
+    else if (n < 10000)    want = (n % 1000) == 0;
+    else if (n < 100000)   want = (n % 10000) == 0;
+    else                   want = (n % 100000) == 0;
+    if (want) {
         const char* name = reflect::NameForHash(hash);
         if (name && name[0]) {
             WM_MOD_LOG("[wolfmount] COMP #%d %s (0x%08X) size=%u eid=%u",
@@ -420,7 +435,15 @@ void* DetourEnqueue(void* ctx, void* buf, uint8_t flags, uint32_t size,
         : nullptr;
 
     int n = g_enqueueCount.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (n <= 200 || (n % 200) == 0) {
+    // Same decaying sample as FlushPendingComp. Enqueue fires thousands of
+    // times per second; a flat every-200th filled 93 MB in one session and the
+    // disk I/O on the game thread is what stalled the render loop.
+    bool want = false;
+    if (n <= 200)          want = true;
+    else if (n < 10000)    want = (n % 1000) == 0;
+    else if (n < 100000)   want = (n % 10000) == 0;
+    else                   want = (n % 100000) == 0;
+    if (want) {
         WM_MOD_LOG("[wolfmount] ENQ #%d ctx=%p eid=%u size=%u flags=%u",
                    n, ctx, entityId, size, (unsigned)flags);
     }

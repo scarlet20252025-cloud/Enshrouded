@@ -5,13 +5,13 @@ import io
 import json
 import os
 
-ROOT = r"E:\DSH\肥鱼乐园\WolfMount\tools\kfc\unpacked\TemplateResource"
+ROOT = os.path.join(ROOT, "tools", "kfc", "unpacked", "TemplateResource")
 WANT = [
     "Enemy_Scavenger_ColdHeights_SnowSabertooth_Tamed",
     "Enemy_Scavenger_ColdHeights_SnowSabertooth_Tamed_Night_Patrol",
     "Enemy_Wildbeast_wolf_earlygame",
 ]
-OUT = r"E:\DSH\肥鱼乐园\WolfMount\tools\_name_index.json"
+OUT = os.path.join(ROOT, "tools", "_name_index.json")
 
 
 def main():

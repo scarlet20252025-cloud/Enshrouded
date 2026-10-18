@@ -9,6 +9,9 @@ Usage:
     python tools/scanrefs.py <hexhash> [<hexhash> ...]
     python tools/scanrefs.py --type keen::ecs::IsTame
 """
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import struct
 import sys
 
@@ -128,9 +131,9 @@ def main():
     values = []
     if "--type" in sys.argv:
         name = args[0]
-        sys.path.insert(0, r"E:\DSH\肥鱼乐园\WolfMount\tools")
+        sys.path.insert(0, os.path.join(ROOT, "tools"))
         import json
-        d = json.load(open(r"E:\DSH\肥鱼乐园\WolfMount\tools\kfc\reflection_data.json",
+        d = json.load(open(os.path.join(ROOT, "tools", "kfc", "reflection_data.json"),
                            encoding="utf-8"))
         for t in d["types"]:
             if t.get("qualifiedName") == name:

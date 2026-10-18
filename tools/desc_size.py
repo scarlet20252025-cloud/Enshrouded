@@ -14,9 +14,12 @@ The list ends at the first pair where BOTH this and the next group are {0,0}.
 Print, for each of the 16 descriptors: base, name, handler, group list, and the
 offset of the terminator (=> minimal descriptor size).
 """
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import struct
 
-sys_path = r"E:\DSH\肥鱼乐园\WolfMount\tools"
+sys_path = os.path.join(ROOT, "tools")
 import sys
 sys.path.insert(0, sys_path)
 import scanrefs as S  # noqa: E402

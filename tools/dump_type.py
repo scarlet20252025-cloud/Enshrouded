@@ -4,10 +4,13 @@ Usage:
     python tools/dump_type.py --idx 1762
     python tools/dump_type.py --name keen::actor::TameWildlifeEvent
 """
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import json
 import sys
 
-RD = r"E:\DSH\肥鱼乐园\WolfMount\tools\kfc\reflection_data.json"
+RD = os.path.join(ROOT, "tools", "kfc", "reflection_data.json")
 
 
 def load():

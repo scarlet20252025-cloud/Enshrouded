@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Compare one component's value across two templates, and against the wolf."""
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import json
 
-BASE = r"E:\DSH\肥鱼乐园\WolfMount\tools\kfc\unpacked\TemplateResource"
+BASE = os.path.join(ROOT, "tools", "kfc", "unpacked", "TemplateResource")
 
 FILES = {
     "wolf_early":   "478381c5-585f-4264-b373-dbb1ea596eca_39768775_0.json",

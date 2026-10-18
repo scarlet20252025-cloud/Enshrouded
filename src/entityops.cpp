@@ -48,6 +48,7 @@ using CreateFn = uint32_t (*)(void* manager, uint32_t kind, void* desc, void* ar
 std::atomic<uintptr_t> g_manager{0};
 std::atomic<int>       g_factionSlot{-1};
 std::atomic<uint32_t>  g_playerId{0};
+std::atomic<uint32_t>  g_routeAPlayer{0};
 std::atomic<int>       g_lastScanSize{0};
 std::atomic<int>       g_discoverAttempts{0};
 std::atomic<int>       g_dumpCount{0};
@@ -255,6 +256,14 @@ int ListEntities(uint32_t* out, int max) {
     return mgr::EnumerateIds(m, out, max);
 }
 
+// How many entities are actually live. EnumerateIds() can report far fewer ids
+// than EntityCount() suggests because the occupancy bitmap is sparse; and at
+// 19k entities an 8192-slot caller buffer silently truncates the population, so
+// a "wild beasts = 0" result may just mean the wolves were past the cut.
+int ListEntitiesSized(uint32_t* out, int max) {
+    return ListEntities(out, max);
+}
+
 int LastScanSize() { return g_lastScanSize.load(std::memory_order_relaxed); }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +284,12 @@ int LastScanSize() { return g_lastScanSize.load(std::memory_order_relaxed); }
 
 namespace {
 
-constexpr int kMaxEntitiesForDiscovery = 4000;
+// Discovery is O(entities x slots) ReadProcessMemory calls. At 4000 entities x
+// 640 slots that is 2.5 MILLION syscalls, and because it ran every 240 frames
+// while failing it was a major contributor to the stutter the user reported.
+// 240 entities is plenty to prove a slot's value distribution and costs ~150k
+// calls once.
+constexpr int kMaxEntitiesForDiscovery = 240;
 constexpr int kMaxSlots = 640;
 constexpr int kMaxDistinct = 24;
 
@@ -295,6 +309,172 @@ void NoteValue(SlotStats* s, uint8_t v) {
     if (s->distinctCount < kMaxDistinct) s->distinct[s->distinctCount++] = v;
 }
 
+// The community mod identifies the player by shape, not by faction: the player
+// is the entity whose definition carries a 40-byte component whose first u32 is
+// the Stamina type hash. That works before Faction is known, which is exactly
+// what we need here — it breaks the chicken-and-egg between "find the player"
+// and "find Faction by looking at the player".
+constexpr uint32_t kSignatureStamina = 0x04B6AA8B;
+constexpr uint16_t kStaminaStride   = 40;
+
+// A definition's slot tables, read in ONE ReadProcessMemory instead of 640.
+// SlotAddress() re-reads the stride table for every slot it is asked about,
+// which turned the player search into millions of syscalls.
+struct DefTables {
+    uint8_t raw[layout::kTableBytes] = {0};
+
+    bool Load(uintptr_t def) {
+        return layout::Read(def, raw, sizeof(raw));
+    }
+    bool Has(int slot) const {
+        if (slot < 0 || slot >= layout::kComponentSlots) return false;
+        const uint64_t word = layout::Load64(raw + (slot >> 6) * 8);
+        return ((word >> (slot & 63)) & 1) != 0;
+    }
+    uint16_t Stride(int slot) const {
+        return layout::Load16(raw + 0xa84 + slot * 2);
+    }
+    uint16_t Offset(int slot) const {
+        return layout::Load16(raw + 0x84 + slot * 2);
+    }
+};
+
+// Confirm on a live instance: a 40-byte slot whose first u32 equals the Stamina
+// signature. Returns true and reports the slot index.
+bool InstanceHasStamina(const mgr::EntityRef& ref, uintptr_t defCache,
+                        const DefTables& t, int* foundSlot) {
+    for (int slot = 0; slot < layout::kComponentSlots; ++slot) {
+        if (!t.Has(slot)) continue;
+        if (t.Stride(slot) != kStaminaStride) continue;
+        const uintptr_t addr = ref.chunk + t.Offset(slot) +
+                               static_cast<size_t>(kStaminaStride) * ref.slot;
+        uint32_t sig = 0;
+        if (!layout::Read(addr, &sig, 4)) continue;
+        if (sig == kSignatureStamina) {
+            if (foundSlot) *foundSlot = slot;
+            return true;
+        }
+    }
+    (void)defCache;
+    return false;
+}
+
+// Route A: locate the player, then pick the one-byte slot reading 7 on it.
+// Returns the slot index, or -1 when this route cannot decide.
+int DiscoverFactionSlotViaPlayer(uintptr_t m, const uint32_t* ids, int n) {
+    uint32_t playerId = 0;
+    mgr::EntityRef playerRef;
+    int staminaSlot = -1;
+
+    // Def tables repeat across entities of the same template, so cache the last
+    // one — the playable set has only a few hundred distinct definitions.
+    uintptr_t cachedDef = 0;
+    DefTables tables;
+
+    // Fast path first. Every HitEvent we captured in an earlier session carried
+    // sourceId == 1 for the local player's own attacks, and the Enqueue trace
+    // shows id 1 writing 80-byte records continuously. Try that id before
+    // scanning, because a 19k-entry table is easy to miss the player in.
+    {
+        mgr::EntityRef ref;
+        if (mgr::Find(m, 1, &ref) && tables.Load(ref.def) &&
+            InstanceHasStamina(ref, ref.def, tables, &staminaSlot)) {
+            playerId = 1;
+            playerRef = ref;
+            cachedDef = ref.def;
+            WM_MOD_LOG("[wolfmount/entity] route A: entity 1 carries the "
+                       "stamina signature (slot %d) — treating it as the "
+                       "player", staminaSlot);
+        }
+    }
+
+    for (int i = 0; i < n && !playerId; ++i) {
+        if (ids[i] == 1) continue;                 // already tried
+        mgr::EntityRef ref;
+        if (!mgr::Find(m, ids[i], &ref)) continue;
+        if (ref.def != cachedDef) {
+            if (!tables.Load(ref.def)) continue;
+            cachedDef = ref.def;
+        }
+        if (!InstanceHasStamina(ref, cachedDef, tables, &staminaSlot)) continue;
+        playerId = ids[i];
+        playerRef = ref;
+    }
+    if (!playerId) {
+        WM_MOD_LOG("[wolfmount/entity] route A: no entity carries the stamina "
+                   "signature among %d sampled — falling back to statistics", n);
+        return -1;
+    }
+    WM_MOD_LOG("[wolfmount/entity] route A: player entity = %u (stamina slot "
+               "%d)", playerId, staminaSlot);
+
+    // Keep it. The stamina signature is a far stronger identity check than
+    // "first entity whose one-byte slot reads 7", and PlayerEntityId() runs
+    // before this discovery in some call orders — without this the later scan
+    // would settle on a different entity (a production snapshot showed it
+    // picking 6248 while route A had correctly found entity 1).
+    g_routeAPlayer.store(playerId, std::memory_order_relaxed);
+
+    // Every one-byte slot on the player that currently reads 7 (Player).
+    int cands[64];
+    const int nc = mgr::FactionCandidates(playerRef, faction::Player, cands, 64);
+    WM_MOD_LOG("[wolfmount/entity] route A: player entity = %u, %d one-byte "
+               "slots read 7", playerId, nc);
+
+    if (nc == 1) {
+        g_factionSlot.store(cands[0], std::memory_order_relaxed);
+        g_lastScanSize.store(n, std::memory_order_relaxed);
+        WM_MOD_LOG("[wolfmount/entity] faction slot = %d (route A: unique "
+                   "one-byte slot reading 7 on the player)", cands[0]);
+        // Do NOT cache `playerId` here. "The entity carrying a stamina signature"
+        // is not necessarily the playable character: in production this matched
+        // entity 1, while the entity whose Faction byte actually read Player was
+        // 6426. Caching the wrong id would make every later lookup (position,
+        // follow, mount) address a phantom. PlayerEntityId() re-derives it from
+        // the faction slot, which is the authoritative answer.
+        return cands[0];
+    }
+    if (nc == 0) return -1;
+
+    // Several candidates: keep only those that also read a valid FactionType
+    // value on a decent share of OTHER entities, which is what separates a
+    // global component from a per-entity flag that happens to be 7.
+    int bestSlot = -1;
+    int bestHits = -1;
+    for (int c = 0; c < nc; ++c) {
+        const int slot = cands[c];
+        int hits = 0;
+        int bad = 0;
+        for (int i = 0; i < n; ++i) {
+            if (ids[i] == playerId) continue;
+            mgr::EntityRef ref;
+            if (!mgr::Find(m, ids[i], &ref)) continue;
+            uint8_t v = 0xFF;
+            if (!mgr::ReadSlot(ref, slot, &v, 1)) continue;
+            if (v > faction::Ancients) { ++bad; continue; }
+            ++hits;
+        }
+        // A real Faction component is present on most entities and never leaves
+        // the enum range. A coincidental flag usually fails one of the two.
+        if (bad > hits / 4) continue;
+        if (hits > bestHits) { bestHits = hits; bestSlot = slot; }
+    }
+
+    if (bestSlot < 0) {
+        WM_MOD_LOG("[wolfmount/entity] route A: %d candidate slots, none "
+                   "survived the population check", nc);
+        return -1;
+    }
+
+    g_factionSlot.store(bestSlot, std::memory_order_relaxed);
+    g_lastScanSize.store(n, std::memory_order_relaxed);
+    g_playerId.store(playerId, std::memory_order_relaxed);
+    WM_MOD_LOG("[wolfmount/entity] faction slot = %d (route A: %d candidates, "
+               "chose the one present on %d/%d other entities)",
+               bestSlot, nc, bestHits, n - 1);
+    return bestSlot;
+}
+
 } // namespace
 
 int DiscoverFactionSlot() {
@@ -307,7 +487,9 @@ int DiscoverFactionSlot() {
     mgr::MapHeader h;
     if (!mgr::ReadHeader(m, &h)) return -1;
 
-    // Collect ids first: we need repeated passes over the same set.
+    // Collect ids first: we need repeated passes over the same set. The player
+    // can be anywhere in a table of 19k+ entities, so the sample must be large
+    // enough to reach it — 240 was not, and Route A never saw the player.
     static uint32_t ids[kMaxEntitiesForDiscovery];
     int n = mgr::EnumerateIds(m, ids, kMaxEntitiesForDiscovery);
     if (n < 8) {
@@ -316,10 +498,31 @@ int DiscoverFactionSlot() {
         return -1;
     }
 
+    // -------------------------------------------------------------------
+    //  Route A (the one the community mod actually uses): find the player
+    //  entity first, then look for the one-byte slot that reads 7 on it.
+    //
+    //  Route B (statistical) is kept as a fallback but it has a fatal weakness
+    //  we hit in production: it requires the candidate slot to appear on >=30%
+    //  of entities AND show >=3 distinct values. An entity manager holding
+    //  19455 mostly-world-prop entities satisfies neither, so it reported
+    //  "0 candidates" forever even though Faction certainly existed.
+    //
+    //  Route A is far more direct: the player's faction byte IS 7 by
+    //  definition, and a one-byte component reading exactly 7 on the player is
+    //  a very short list.
+    // -------------------------------------------------------------------
+    if (int viaPlayer = DiscoverFactionSlotViaPlayer(m, ids, n); viaPlayer >= 0) {
+        return viaPlayer;
+    }
+
     static SlotStats stats[kMaxSlots];
     memset(stats, 0, sizeof(stats));
 
     int sampled = 0;
+    int resolvedSlots = 0;      // SlotAddress() succeeded
+    int strideOneSlots = 0;     // ... and the component is exactly one byte
+    int unreadableSlots = 0;    // resolved but ReadProcessMemory failed
     for (int i = 0; i < n; ++i) {
         mgr::EntityRef ref;
         if (!mgr::Find(m, ids[i], &ref)) continue;
@@ -333,12 +536,18 @@ int DiscoverFactionSlot() {
                                      &stride)) {
                 continue;
             }
+            ++resolvedSlots;
             if (stride != 1) continue;
+            ++strideOneSlots;
             uint8_t v = 0xFF;
-            if (!layout::Read(addr, &v, 1)) continue;
+            if (!layout::Read(addr, &v, 1)) { ++unreadableSlots; continue; }
             NoteValue(&stats[slot], v);
         }
     }
+
+    WM_MOD_LOG("[wolfmount/entity] faction scan: %d entities, %d slot addresses "
+               "resolved, %d one-byte, %d unreadable",
+               sampled, resolvedSlots, strideOneSlots, unreadableSlots);
 
     // Gather candidates, then pick the best one.
     struct Cand { int slot; int present; int distinct; };
@@ -364,8 +573,27 @@ int DiscoverFactionSlot() {
     }
 
     if (best.slot < 0) {
+        // Report the near-miss detail instead of just "nothing found": the most
+        // useful fact is how many one-byte slots existed at all and what the
+        // best few looked like. Without this the failure is undiagnosable.
         WM_MOD_LOG("[wolfmount/entity] faction slot NOT found "
                    "(sampled %d entities, %d candidates)", sampled, candidates);
+        for (int slot = 0, shown = 0; slot < kMaxSlots && shown < 6; ++slot) {
+            const SlotStats& s = stats[slot];
+            if (s.present == 0) continue;
+            char vals[96] = {0};
+            for (int i = 0; i < s.distinctCount && i < kMaxDistinct; ++i) {
+                char one[8];
+                snprintf(one, sizeof(one), "%s%u", i ? "," : "",
+                         (unsigned)s.distinct[i]);
+                strncat(vals, one, sizeof(vals) - strlen(vals) - 1);
+            }
+            WM_MOD_LOG("[wolfmount/entity]   1-byte slot %d: present %d/%d, "
+                       "distinct %d {%s}%s", slot, s.present, sampled,
+                       s.distinctCount, vals,
+                       s.outOfRange ? " OUT-OF-RANGE" : "");
+            ++shown;
+        }
         return -1;
     }
 
@@ -449,7 +677,37 @@ bool WriteFaction(uint32_t entityId, uint8_t value) {
     return ok;
 }
 
+// Defined below (needs the DefTables helper). Declared inside an anonymous
+// namespace so it refers to the same internal-linkage function that is defined
+// there; declaring it at this scope would create a *different*, unresolved
+// overload.
+namespace {
+int FindTransformSlot(uint32_t entityId);
+}  // namespace
+
 uint32_t PlayerEntityId() {
+    // Route A already identified the character by the stamina signature, which
+    // is a positive identification rather than a search heuristic. Trust it
+    // first: searching by "first faction==Player" can land on a different live
+    // entity (a production run picked 6248 while route A had found entity 1).
+    const uint32_t known = g_routeAPlayer.load(std::memory_order_relaxed);
+    if (known) {
+        mgr::EntityRef ref;
+        if (Lookup(known, &ref)) {
+            const uint32_t cached = g_playerId.load(std::memory_order_relaxed);
+            if (cached != known) {
+                g_playerId.store(known, std::memory_order_relaxed);
+                WM_MOD_LOG("[wolfmount/entity] player entity = %u (identified "
+                           "by the stamina signature)", known);
+            }
+            return known;
+        }
+        // The entity is gone (respawn / level change). Drop the hint so the
+        // search below can find the new one.
+        g_routeAPlayer.store(0, std::memory_order_relaxed);
+        g_playerId.store(0, std::memory_order_relaxed);
+    }
+
     const uint32_t cached = g_playerId.load(std::memory_order_relaxed);
     if (cached) {
         mgr::EntityRef ref;
@@ -460,58 +718,144 @@ uint32_t PlayerEntityId() {
     const int slot = FactionSlot();
     if (slot < 0) return 0;
 
-    static uint32_t ids[4096];
-    const int n = ListEntities(ids, 4096);
+    // More than one live entity can carry Faction == Player: a production
+    // snapshot showed Player=2. Picking the first by id gave an entity whose
+    // position could not be read at all, so choose by a property the playable
+    // character must have — a readable, plausible CurrentTransform.
+    static uint32_t ids[8192];
+    const int n = ListEntities(ids, 8192);
+
+    uint32_t firstPlayer = 0;
     for (int i = 0; i < n; ++i) {
-        const int f = ReadFaction(ids[i]);
-        if (f == faction::Player) {
-            g_playerId.store(ids[i], std::memory_order_relaxed);
-            WM_MOD_LOG("[wolfmount/entity] player entity = %u (faction Player)",
-                       ids[i]);
-            return ids[i];
-        }
+        if (ReadFaction(ids[i]) != faction::Player) continue;
+        if (!firstPlayer) firstPlayer = ids[i];
+        if (FindTransformSlot(ids[i]) < 0) continue;   // no usable position
+        g_playerId.store(ids[i], std::memory_order_relaxed);
+        WM_MOD_LOG("[wolfmount/entity] player entity = %u (faction Player, has "
+                   "a readable position)", ids[i]);
+        return ids[i];
+    }
+
+    if (firstPlayer) {
+        // Fall back rather than returning 0: the entity is still the player,
+        // and callers report "position unavailable" separately.
+        g_playerId.store(firstPlayer, std::memory_order_relaxed);
+        WM_MOD_LOG("[wolfmount/entity] player entity = %u (faction Player, but "
+                   "no position slot was readable)", firstPlayer);
+        return firstPlayer;
     }
     return 0;
 }
 
 namespace {
 
-// Position slot is discovered the same way Faction is: by shape. A 56-byte
-// component whose first three int64s convert to a plausible world position is
-// CurrentTransform. Enshrouded's playable area is well under 100 km across, so
-// |x|,|y|,|z| < 200000 metres is a very safe bound.
+// Position slot is discovered by shape, not by name.
+//
+// Two encodings exist in this engine and the difference matters:
+//   keen::ecs::CurrentTransform  (56 B) -> keen::WorldTransform, whose position
+//                                          is three sint64 fixed-point values
+//                                          in 1/2^32 metre units.
+//   keen::ecs::Transform         (32 B) -> float3 position already in metres.
+//
+// We originally only looked for the 56-byte form because that is the one M182's
+// Rust layer reads. The player template does carry CurrentTransform, but the
+// component may be absent or unwritten on a live entity, so both shapes are
+// accepted. Enshrouded's playable area is well under 100 km across, so
+// |x|,|y|,|z| < 200000 metres is a very safe bound either way.
 constexpr double kMaxPlausibleMeters = 200000.0;
+constexpr uint16_t kTransformF32Size = 32;   // keen::ecs::Transform
 
-int FindTransformSlot(uint32_t entityId) {
+bool PlausibleMeters(double x, double y, double z) {
+    const double v[3] = {x, y, z};
+    for (int k = 0; k < 3; ++k) {
+        if (!std::isfinite(v[k]) || std::fabs(v[k]) > kMaxPlausibleMeters) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int FindTransformSlotImpl(uint32_t entityId, uint16_t* strideOut) {
     mgr::EntityRef ref;
-    if (!Lookup(entityId, &ref)) return -1;
+    if (!Lookup(entityId, &ref)) {
+        WM_MOD_LOG("[wolfmount/entity] transform lookup: entity %u is not live",
+                   entityId);
+        return -1;
+    }
     const auto* def = reinterpret_cast<const uint8_t*>(ref.def);
 
-    for (int slot = 0; slot < kMaxSlots; ++slot) {
-        uintptr_t addr = 0;
-        uint16_t stride = 0;
-        if (!layout::SlotAddress(def, ref.chunk, ref.slot, slot, &addr,
-                                 &stride)) {
-            continue;
-        }
-        if (stride != kTransformSize) continue;
-        int64_t pos[3] = {0, 0, 0};
-        if (!layout::Read(addr, pos, sizeof(pos))) continue;
-        bool plausible = true;
-        for (int k = 0; k < 3; ++k) {
-            const double m = layout::FixedToMeters(pos[k]);
-            if (!std::isfinite(m) || std::fabs(m) > kMaxPlausibleMeters) {
-                plausible = false;
-                break;
+    // Read the definition tables once: SlotAddress() re-reads them per slot, and
+    // this runs on the render thread.
+    DefTables t;
+    if (!t.Load(reinterpret_cast<uintptr_t>(def))) return -1;
+
+    int seen56 = 0;
+    int seen32 = 0;
+    int first32 = -1;
+    for (int slot = 0; slot < layout::kComponentSlots; ++slot) {
+        if (!t.Has(slot)) continue;
+        const uint16_t stride = t.Stride(slot);
+
+        if (stride == kTransformF32Size) {
+            ++seen32;
+            // A 32-byte component is NOT automatically a position: the
+            // definition table only tells us the width. Read it and require the
+            // three floats to look like a real world position, otherwise any
+            // unrelated 32-byte component would be reported as "readable
+            // position" and PlayerEntityId() would trust the wrong entity.
+            if (first32 < 0) {
+                const uintptr_t a32 = ref.chunk + t.Offset(slot) +
+                                      static_cast<size_t>(kTransformF32Size) *
+                                          ref.slot;
+                float f[3] = {0, 0, 0};
+                if (layout::Read(a32, f, sizeof(f)) &&
+                    PlausibleMeters(f[0], f[1], f[2]) &&
+                    !(f[0] == 0.0f && f[1] == 0.0f && f[2] == 0.0f)) {
+                    first32 = slot;
+                }
             }
         }
-        if (!plausible) continue;
-        // Not the origin: an unwritten transform reads all zeros, which is
-        // outside the playable map.
+        if (stride != kTransformSize) continue;
+        ++seen56;
+        const uintptr_t addr = ref.chunk + t.Offset(slot) +
+                               static_cast<size_t>(kTransformSize) * ref.slot;
+        int64_t pos[3] = {0, 0, 0};
+        if (!layout::Read(addr, pos, sizeof(pos))) continue;
+        if (!PlausibleMeters(layout::FixedToMeters(pos[0]),
+                             layout::FixedToMeters(pos[1]),
+                             layout::FixedToMeters(pos[2]))) {
+            continue;
+        }
         if (pos[0] == 0 && pos[1] == 0 && pos[2] == 0) continue;
+        if (strideOut) *strideOut = kTransformSize;
         return slot;
     }
+
+    // No usable fixed-point transform. Fall back to the 32-byte float form.
+    if (first32 >= 0) {
+        WM_MOD_LOG("[wolfmount/entity] entity %u: no fixed-point transform with "
+                   "a live value (%d candidates, %d float transforms); using "
+                   "slot %d (float3 position)", entityId, seen56, seen32, first32);
+        if (strideOut) *strideOut = kTransformF32Size;
+        return first32;
+    }
+
+    WM_MOD_LOG("[wolfmount/entity] transform slot NOT found for entity %u "
+               "(%d slots are 56 bytes wide, %d are 32 bytes)", entityId,
+               seen56, seen32);
     return -1;
+}
+
+} // namespace
+
+int FindTransformSlotEx(uint32_t entityId, uint16_t* strideOut) {
+    return FindTransformSlotImpl(entityId, strideOut);
+}
+
+namespace {
+
+int FindTransformSlot(uint32_t entityId) {
+    return FindTransformSlotImpl(entityId, nullptr);
 }
 
 } // namespace
@@ -519,17 +863,43 @@ int FindTransformSlot(uint32_t entityId) {
 bool PlayerPosition(double* x, double* y, double* z) {
     const uint32_t pid = PlayerEntityId();
     if (!pid) return false;
-    const int slot = FindTransformSlot(pid);
+    uint16_t stride = 0;
+    const int slot = FindTransformSlotEx(pid, &stride);
     if (slot < 0) return false;
     mgr::EntityRef ref;
-    if (!Lookup(pid, &ref)) return false;
-    uintptr_t addr = mgr::SlotAddressOf(ref, slot);
-    if (!addr) return false;
-    int64_t pos[3] = {0, 0, 0};
-    if (!layout::Read(addr, pos, sizeof(pos))) return false;
-    if (x) *x = layout::FixedToMeters(pos[0]);
-    if (y) *y = layout::FixedToMeters(pos[1]);
-    if (z) *z = layout::FixedToMeters(pos[2]);
+    if (!Lookup(pid, &ref)) {
+        WM_MOD_LOG("[wolfmount/pos] player entity %u vanished from the manager "
+                   "between the two lookups", pid);
+        return false;
+    }
+    const uintptr_t addr = mgr::SlotAddressOf(ref, slot);
+    if (!addr) {
+        WM_MOD_LOG("[wolfmount/pos] player entity %u slot %d has no address",
+                   pid, slot);
+        return false;
+    }
+
+    double p[3] = {0, 0, 0};
+    if (stride == kTransformF32Size) {
+        float f[3] = {0, 0, 0};
+        if (!layout::Read(addr, f, sizeof(f))) return false;
+        p[0] = f[0]; p[1] = f[1]; p[2] = f[2];
+    } else {
+        int64_t v[3] = {0, 0, 0};
+        if (!layout::Read(addr, v, sizeof(v))) return false;
+        p[0] = layout::FixedToMeters(v[0]);
+        p[1] = layout::FixedToMeters(v[1]);
+        p[2] = layout::FixedToMeters(v[2]);
+    }
+    if (!PlausibleMeters(p[0], p[1], p[2])) {
+        WM_MOD_LOG("[wolfmount/pos] player entity %u slot %d read %.3f %.3f "
+                   "%.3f m — outside the plausible range", pid, slot, p[0], p[1],
+                   p[2]);
+        return false;
+    }
+    if (x) *x = p[0];
+    if (y) *y = p[1];
+    if (z) *z = p[2];
     return true;
 }
 
@@ -548,8 +918,68 @@ int ListWildBeasts(uint32_t* out, int max) {
     return written;
 }
 
-bool ReadComponent(uint32_t entityId, int slot, void* buf, uint16_t stride) {
-    mgr::EntityRef ref;
+bool LogEntitySnapshot() {
+    const int slot = FactionSlot();
+    if (slot < 0) return false;
+    if (!HasManager()) return false;
+
+    static uint32_t ids[8192];
+    const int n = ListEntities(ids, 8192);
+    if (n <= 0) {
+        WM_MOD_LOG("[wolfmount/snapshot] deferred: entity table empty");
+        return false;
+    }
+
+    // Tally factions over the whole live population. This is the single most
+    // useful fact about a session: it says whether the discovered slot is
+    // really Faction, and whether the world actually contains a Player and any
+    // WildBeast at this moment.
+    int counts[16] = {0};
+    int outOfRange = 0;
+    int unreadable = 0;
+    for (int i = 0; i < n; ++i) {
+        mgr::EntityRef ref;
+        if (!Lookup(ids[i], &ref)) continue;
+        uint8_t v = 0xFF;
+        if (!mgr::ReadSlot(ref, slot, &v, 1)) { ++unreadable; continue; }
+        if (v < 16) ++counts[v];
+        else ++outOfRange;
+    }
+
+    char tally[256] = {0};
+    for (int f = 0; f < 16; ++f) {
+        if (!counts[f]) continue;
+        char one[40];
+        snprintf(one, sizeof(one), "%s%s=%d", tally[0] ? " " : "",
+                 game::FactionName((uint8_t)f), counts[f]);
+        strncat(tally, one, sizeof(tally) - strlen(tally) - 1);
+    }
+
+    const uint32_t player = PlayerEntityId();
+    double px = 0, py = 0, pz = 0;
+    const bool havePos = PlayerPosition(&px, &py, &pz);
+
+    WM_MOD_LOG("[wolfmount/snapshot] %d entities, faction slot %d: %s "
+               "(out-of-range %d, unreadable %d)",
+               n, slot, tally[0] ? tally : "(none)", outOfRange, unreadable);
+    if (player) {
+        WM_MOD_LOG("[wolfmount/snapshot] player=%u position=%.1f,%.1f,%.1f%s",
+                   player, px, py, pz, havePos ? "" : " (unavailable)");
+    } else {
+        WM_MOD_LOG("[wolfmount/snapshot] player NOT visible through this slot");
+    }
+    WM_MOD_LOG("[wolfmount/snapshot] wild beasts visible: %d", counts[6]);
+
+    // Only claim readiness when the slot demonstrably reads both factions that
+    // make it Faction. Anything else means the discovery picked the wrong byte
+    // and writing through it would corrupt an unrelated component.
+    const bool usable = (counts[faction::Player] > 0) && (outOfRange == 0);
+    WM_MOD_LOG("[wolfmount/snapshot] faction slot usable for writes: %s",
+               usable ? "yes" : "NO (player not found through it)");
+    return usable;
+}
+
+bool ReadComponent(uint32_t entityId, int slot, void* buf, uint16_t stride) {    mgr::EntityRef ref;
     if (!Lookup(entityId, &ref)) return false;
     return mgr::ReadSlot(ref, slot, buf, stride);
 }
@@ -588,30 +1018,24 @@ uint32_t SpawnAt(const uint8_t guid[16], double x, double y, double z,
     const auto create = reinterpret_cast<CreateFn>(base + kSpawnCreateRva);
     if (!create) return 0;
 
-    // CurrentTransform: three fixed-point int64s then four float32s.
-    alignas(16) uint8_t transform[kTransformSize] = {0};
-    const int64_t ix = layout::MetersToFixed(x);
-    const int64_t iy = layout::MetersToFixed(y);
-    const int64_t iz = layout::MetersToFixed(z);
-    memcpy(transform + 0,  &ix, 8);
-    memcpy(transform + 8,  &iy, 8);
-    memcpy(transform + 16, &iz, 8);
-    const float one = 1.0f;
-    memcpy(transform + 36, &one, 4);
-    memcpy(transform + 40, &one, 4);
-    memcpy(transform + 44, &one, 4);
-    memcpy(transform + 48, &one, 4);
-
     uint32_t levelValue = level;
 
     // Component descriptor array: 24 bytes per entry.
     //   +0x00 u32 hash
     //   +0x08 void* data
     //   +0x10 u64 size
+    //
+    // NOTE: the factory at RVA 0x97B790 NEVER READS desc+0x18, so this array is
+    // not consumed by the game. It is kept only because M182's own calibration
+    // reads it back after Create returns to work out which slot the template's
+    // transform landed in (spawner.rs:1074-1082). See the comment in
+    // entityops.h before trusting anything about positioning here.
+    // A zeroed placeholder is enough for that purpose: the calibration only
+    // needs the array to exist at a known address, and the game never reads it.
     alignas(16) uint8_t entries[0x40] = {0};
     const uint32_t nEntries = 2;
     memcpy(entries + 0,  &kHashCurrentTransform, 4);
-    uint64_t p = reinterpret_cast<uint64_t>(transform);
+    uint64_t p = reinterpret_cast<uint64_t>(entries);
     memcpy(entries + 8,  &p, 8);
     uint64_t sz = kTransformSize;
     memcpy(entries + 16, &sz, 8);
@@ -621,10 +1045,10 @@ uint32_t SpawnAt(const uint8_t guid[16], double x, double y, double z,
     sz = 4;
     memcpy(entries + 40, &sz, 8);
 
-    // Spawn descriptor.
-    //   +0x04  template GUID (16 bytes)
-    //   +0x18  component array pointer
-    //   +0x20  component count
+    // Spawn descriptor. The factory reads exactly two fields of this struct:
+    //   +0x04  16-byte template GUID   (movups 0x4(%r8),%xmm0 at rva 0x97B8A9)
+    //   +0x20  component count         (leaq  0x20(%r8),%rax at rva 0x97B7BB)
+    // desc+0x18 is never read anywhere in the 0x97B790..0x97D358 span.
     alignas(16) uint8_t desc[0x40] = {0};
     memcpy(desc + 4, guid, 16);
     p = reinterpret_cast<uint64_t>(entries);
@@ -633,19 +1057,94 @@ uint32_t SpawnAt(const uint8_t guid[16], double x, double y, double z,
     memcpy(desc + 0x20, &count, 8);
 
     const uint32_t id = create(reinterpret_cast<void*>(m), 0, desc, nullptr);
+    if (id == 0) {
+        WM_MOD_LOG("[wolfmount/spawn] create(guid %02x%02x%02x%02x...) -> "
+                   "no entity", guid[0], guid[1], guid[2], guid[3]);
+        return 0;
+    }
 
-    WM_MOD_LOG("[wolfmount/spawn] create(guid %02x%02x%02x%02x...) at "
-               "(%.1f, %.1f, %.1f) level %u -> entity %u",
-               guid[0], guid[1], guid[2], guid[3], x, y, z, level, id);
+    // The factory positions the entity wherever the template says, ignoring
+    // every coordinate we passed. Move it explicitly, and say so.
+    const bool moved = MoveEntity(id, x, y, z);
+    WM_MOD_LOG("[wolfmount/spawn] create(guid %02x%02x%02x%02x...) -> entity %u;"
+               " factory ignores position, MoveEntity(%.1f, %.1f, %.1f) = %s",
+               guid[0], guid[1], guid[2], guid[3], id, x, y, z,
+               moved ? "ok" : "FAILED (see transform slot note)");
     return id;
+}
+
+bool MoveEntity(uint32_t entityId, double x, double y, double z) {
+    if (!entityId) return false;
+    mgr::EntityRef ref;
+    if (!Lookup(entityId, &ref)) {
+        // A freshly spawned entity may not be registered in the hash table on
+        // the same frame it is returned. Say that plainly instead of guessing.
+        WM_MOD_LOG("[wolfmount/move] entity %u not yet in the manager; "
+                   "position left at the template default", entityId);
+        return false;
+    }
+    uint16_t stride = 0;
+    const int slot = FindTransformSlotEx(entityId, &stride);
+    if (slot < 0) {
+        WM_MOD_LOG("[wolfmount/move] entity %u: no plausible position slot "
+                   "found, refusing to guess", entityId);
+        return false;
+    }
+    const uintptr_t addr = mgr::SlotAddressOf(ref, slot);
+    if (!addr) return false;
+
+    // Write in whichever encoding this slot actually uses. Encoding a float
+    // transform as fixed-point (or the reverse) would corrupt the component,
+    // so the choice is driven by the stride that was found, not by a constant.
+    if (stride == kTransformF32Size) {
+        float f[3] = {(float)x, (float)y, (float)z};
+        if (!layout::Write(addr, f, sizeof(f))) {
+            WM_MOD_LOG("[wolfmount/move] entity %u slot %d not writable",
+                       entityId, slot);
+            return false;
+        }
+        float back[3] = {0, 0, 0};
+        if (!layout::Read(addr, back, sizeof(back)) ||
+            memcmp(back, f, sizeof(f))) {
+            WM_MOD_LOG("[wolfmount/move] entity %u slot %d read-back mismatch",
+                       entityId, slot);
+            return false;
+        }
+    } else {
+        int64_t pos[3] = {layout::MetersToFixed(x), layout::MetersToFixed(y),
+                          layout::MetersToFixed(z)};
+        if (!layout::Write(addr, pos, sizeof(pos))) {
+            WM_MOD_LOG("[wolfmount/move] entity %u slot %d not writable",
+                       entityId, slot);
+            return false;
+        }
+        // Read back: a position write that did not stick is not a success.
+        int64_t back[3] = {0, 0, 0};
+        if (!layout::Read(addr, back, sizeof(back)) ||
+            memcmp(back, pos, sizeof(pos))) {
+            WM_MOD_LOG("[wolfmount/move] entity %u slot %d read-back mismatch",
+                       entityId, slot);
+            return false;
+        }
+    }
+    WM_MOD_LOG("[wolfmount/move] entity %u -> (%.1f, %.1f, %.1f) via slot %d "
+               "(%s)", entityId, x, y, z, slot,
+               stride == kTransformF32Size ? "float3" : "fixed-point");
+    return true;
 }
 
 int SpawnNearPlayer(const uint8_t guid[16], int count, double distance,
                     uint32_t level) {
     double x = 0, y = 0, z = 0;
-    if (!PlayerPosition(&x, &y, &z)) {
-        WM_MOD_LOG("[wolfmount/spawn] refused: player position not available");
-        return 0;
+    bool havePos = PlayerPosition(&x, &y, &z);
+    if (!havePos) {
+        // Do NOT refuse. The factory ignores the position we pass anyway (it
+        // reads only desc+0x04 and desc+0x20; see docs/TECHNIQUE.md §5a), so a
+        // missing player transform cannot prevent a spawn — it only means we
+        // cannot pick WHERE. Falling through lets us prove the Create chain on
+        // its own, which is the harder half of this feature.
+        WM_MOD_LOG("[wolfmount/spawn] no player position; spawning at the "
+                   "template's own location (position is applied afterwards)");
     }
     if (count < 1) count = 1;
     if (count > 8) count = 8;
@@ -654,14 +1153,21 @@ int SpawnNearPlayer(const uint8_t guid[16], int count, double distance,
     int spawned = 0;
     for (int i = 0; i < count; ++i) {
         const double angle = 2.0 * 3.14159265358979323846 * i / count;
-        const double sx = x + distance * std::cos(angle);
-        const double sz = z + distance * std::sin(angle);
-        const uint32_t id = SpawnAt(guid, sx, y + 0.5, sz, level);
-        if (id == 0) continue;
+        const double sx = havePos ? x + distance * std::cos(angle) : 0.0;
+        const double sz = havePos ? z + distance * std::sin(angle) : 0.0;
+        const uint32_t id = SpawnAt(guid, sx, havePos ? y + 0.5 : 0.0, sz, level);
+        if (id == 0) {
+            WM_MOD_LOG("[wolfmount/spawn] attempt %d/%d: factory returned 0",
+                       i + 1, count);
+            continue;
+        }
         // Verify the entity is actually in the manager; the factory returning a
         // non-zero id is not the same as a live entity.
         mgr::EntityRef ref;
-        if (Lookup(id, &ref)) ++spawned;
+        const bool live = Lookup(id, &ref);
+        WM_MOD_LOG("[wolfmount/spawn] attempt %d/%d: id=%u live=%d", i + 1,
+                   count, id, live ? 1 : 0);
+        if (live) ++spawned;
     }
     WM_MOD_LOG("[wolfmount/spawn] requested %d, verified live %d", count,
                spawned);
@@ -701,6 +1207,73 @@ void DumpEntity(uint32_t entityId, int maxSlots) {
         WM_MOD_LOG("[wolfmount/dump]   slot %3d stride %3u addr %p  %s",
                    slot, stride, reinterpret_cast<void*>(addr), hex);
         ++shown;
+    }
+}
+
+// One-shot position diagnosis. Called from the console so a single session
+// answers every question about why the player's coordinates cannot be read:
+// which entities claim Faction == Player, and for each 56-byte component on
+// them, the raw int64 triple and what it converts to in metres.
+void DumpPlayerPosition() {
+    const int slot = FactionSlot();
+    WM_MOD_LOG("[wolfmount/pos] faction slot = %d", slot);
+    if (slot < 0) {
+        WM_MOD_LOG("[wolfmount/pos] cannot search: faction slot unknown");
+        return;
+    }
+
+    static uint32_t ids[8192];
+    const int n = ListEntities(ids, 8192);
+    WM_MOD_LOG("[wolfmount/pos] scanning %d live entities for Faction==Player",
+               n);
+
+    int players = 0;
+    for (int i = 0; i < n && players < 4; ++i) {
+        const int f = ReadFaction(ids[i]);
+        if (f != faction::Player) continue;
+        ++players;
+
+        mgr::EntityRef ref;
+        if (!Lookup(ids[i], &ref)) continue;
+        DefTables t;
+        if (!t.Load(ref.def)) {
+            WM_MOD_LOG("[wolfmount/pos] entity %u: definition unreadable",
+                       ids[i]);
+            continue;
+        }
+
+        WM_MOD_LOG("[wolfmount/pos] entity %u (Faction Player) chunk=%p slot=%u",
+                   ids[i], reinterpret_cast<void*>(ref.chunk), ref.slot);
+
+        int shown = 0;
+        for (int s = 0; s < layout::kComponentSlots && shown < 8; ++s) {
+            if (!t.Has(s)) continue;
+            if (t.Stride(s) != kTransformSize) continue;
+            const uintptr_t addr = ref.chunk + t.Offset(s) +
+                                   static_cast<size_t>(kTransformSize) * ref.slot;
+            int64_t v[3] = {0, 0, 0};
+            if (!layout::Read(addr, v, sizeof(v))) {
+                WM_MOD_LOG("[wolfmount/pos]   slot %3d stride 56 addr %p  "
+                           "UNREADABLE", s, reinterpret_cast<void*>(addr));
+                ++shown;
+                continue;
+            }
+            WM_MOD_LOG("[wolfmount/pos]   slot %3d stride 56 addr %p  "
+                       "raw %lld %lld %lld  = %.3f %.3f %.3f m",
+                       s, reinterpret_cast<void*>(addr),
+                       (long long)v[0], (long long)v[1], (long long)v[2],
+                       layout::FixedToMeters(v[0]),
+                       layout::FixedToMeters(v[1]),
+                       layout::FixedToMeters(v[2]));
+            ++shown;
+        }
+        if (!shown) {
+            WM_MOD_LOG("[wolfmount/pos]   no 56-byte component at all");
+        }
+    }
+
+    if (!players) {
+        WM_MOD_LOG("[wolfmount/pos] no entity currently reads Faction == Player");
     }
 }
 

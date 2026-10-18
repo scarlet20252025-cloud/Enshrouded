@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Inspect a KFC TemplateResource JSON: list its component types and key values."""
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import json
+import os
 import sys
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 GUID = "478381c5-585f-4264-b373-dbb1ea596eca_39768775_0.json"
-PATH = (r"E:\DSH\肥鱼乐园\WolfMount\tools\kfc\unpacked"
-        r"\TemplateResource" + "\\" + GUID)
+PATH = os.path.join(ROOT, "tools", "kfc", "unpacked", "TemplateResource", GUID)
 
 
 def main(path=PATH):

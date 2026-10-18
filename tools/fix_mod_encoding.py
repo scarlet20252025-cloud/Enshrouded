@@ -4,10 +4,13 @@ r"""Repair mojibake in src/mod.cpp using ASCII-only unicode escapes.
 All replacement text is written as \uXXXX escapes so this file is pure ASCII
 and immune to any console/pipe encoding round-trip.
 """
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import io
 import sys
 
-PATH = r"E:\DSH\肥鱼乐园\WolfMount\src\mod.cpp"
+PATH = os.path.join(ROOT, "src", "mod.cpp")
 
 
 def u(s):

@@ -6,10 +6,13 @@ the game thread while it is writing components. Every one of them costs an
 fprintf+fflush. This script reports each call site's guard so we can prove the
 log volume is bounded before deploying.
 """
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import io
 import re
 
-SRC = r"E:\DSH\肥鱼乐园\WolfMount\src\gamehooks.cpp"
+SRC = os.path.join(ROOT, "src", "gamehooks.cpp")
 
 
 def main():

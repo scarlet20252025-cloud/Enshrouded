@@ -11,7 +11,10 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 # Report every site with its size, then reverse-lookup the hash.
 
 EXE = r"E:\SteamLibrary\steamapps\common\Enshrouded\enshrouded.exe"
-REFL = r"E:\DSH\肥鱼乐园\WolfMount\tools\kfc\reflection_data.json"
+REFL = os.path.join(ROOT, "tools", "kfc", "reflection_data.json")
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import json
 by_qh = {t["qualifiedHash"]: t for t in json.load(open(REFL, encoding="utf-8"))["types"]}
 

@@ -4,10 +4,13 @@ then re-examine only those functions that are large enough to be a dispatcher.
 .pdata is an array of RUNTIME_FUNCTION { ULONG BeginAddress; ULONG EndAddress;
 ULONG UnwindInfoAddress; } (12 bytes each), addresses are RVAs.
 """
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import struct
 import sys
 
-sys.path.insert(0, r"E:\DSH\肥鱼乐园\WolfMount\tools")
+sys.path.insert(0, os.path.join(ROOT, "tools"))
 import scanrefs as S  # noqa: E402
 
 CANDIDATES = [0x36789, 0x38F4D, 0x3943C, 0x43C13, 0x5404A7, 0x540772,
