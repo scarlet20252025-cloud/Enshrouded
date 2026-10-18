@@ -209,6 +209,53 @@ int FindTransformSlotEx(uint32_t entityId, uint16_t* strideOut);
 int SpawnNearPlayer(const uint8_t guid[16], int count, double distance,
                     uint32_t level);
 
+// Spawn and enrol the result in the follow set. Separate from SpawnNearPlayer so
+// a spawn used as a test target does not start trailing the player by accident.
+int SpawnFollower(const uint8_t guid[16], int count, double distance,
+                  uint32_t level);
+
+// ---------------------------------------------------------------------------
+//  Following
+//
+//  This engine has no follow behaviour to switch on. `EnemyFeatureMask` is a
+//  32-bit mask over `EnemyFeature`, whose complete enum is 27 values and has no
+//  `Follow` member, so a companion cannot be told to trail the player by writing
+//  a behaviour flag. `OwnerRelationship` looks like the missing link but is
+//  carried by none of the 12267 shipped templates (it is attached at runtime)
+//  and has no `Enqueue` write site, so it cannot be set through the component
+//  path either.
+//
+//  So following is done from outside: remember the companion ids, and each tick
+//  move them toward a point behind the player. `FollowTick` is that loop. It is
+//  deliberately cheap -- the transform slot is cached per entity definition
+//  (see the cache in entityops.cpp), so a tick costs a position read plus one
+//  write per companion, not a 640-slot search.
+// ---------------------------------------------------------------------------
+
+// Add an entity to the follow set. Returns false when the set is full.
+bool FollowAdd(uint32_t entityId);
+
+// Drop an entity from the follow set (also happens automatically when it dies).
+void FollowRemove(uint32_t entityId);
+
+// Forget every follower.
+void FollowClear();
+
+// How many entities are currently in the follow set.
+int FollowCount();
+
+// Advance the follow loop by one tick. Call this from the render thread once per
+// frame; it self-throttles, so a per-frame call is safe.
+//
+// Returns how many followers were moved this tick.
+//
+// `behindMetres` is how far behind the player a follower aims for, and
+// `teleportBeyond` is the distance past which a follower is moved
+// instantaneously instead of walked -- without that, a companion left behind on
+// the far side of the map would spend the rest of the session catching up, or
+// never survive the trip.
+int FollowTick(double behindMetres, double teleportBeyond);
+
 // ---------------------------------------------------------------------------
 //  Diagnostics
 // ---------------------------------------------------------------------------

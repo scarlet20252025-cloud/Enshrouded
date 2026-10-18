@@ -15,6 +15,7 @@
 
 #include "gamehooks.h"
 #include "entityops.h"
+#include "faction.h"
 #include "gamedata.h"
 #include "mod.h"
 #include "mount.h"
@@ -197,7 +198,7 @@ Result CmdTame(const std::vector<std::string>& a) {
         // A wolf is a plain Enemy unit: it carries no Animal/Wildlife component,
         // so the engine's taming pipeline has nothing to act on. What makes a
         // wolf behave as an ally is its Faction byte, not IsTame.
-        if (!entityops::WriteFaction(eid, 11)) {
+        if (!entityops::WriteFaction(eid, faction::kPlayerAlly)) {
             Emit("tame: faction write FAILED for entity %u", eid);
             return Result::NotAvailable;
         }
@@ -207,6 +208,17 @@ Result CmdTame(const std::vector<std::string>& a) {
              after, game::FactionName(static_cast<uint8_t>(after)));
         Emit("      Faction is what the AI actually reads; IsTame on a wolf has");
         Emit("      no consumer (verified: wolves carry no Animal component).");
+
+        // Faction alone stops it attacking us and starts it attacking everyone
+        // else -- that is IsEnemy's default branch doing the work. It does NOT
+        // make it follow: this engine has no follow behaviour to enable (see
+        // docs/TECHNIQUE.md §6a), so enrol it in our own follow loop instead.
+        if (entityops::FollowAdd(eid)) {
+            Emit("      enrolled as a follower (%d in the set); it will trail you",
+                 entityops::FollowCount());
+        } else {
+            Emit("      could NOT enrol it as a follower (set full)");
+        }
         return Result::Ok;
     }
 

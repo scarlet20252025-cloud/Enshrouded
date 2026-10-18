@@ -152,6 +152,49 @@ void TestFriend() {
     Check(!f && e, "scavenger vs wildlife: enemy but not friend");
 }
 
+// ---------------------------------------------------------------------------
+//  What a Faction write actually buys us
+//
+//  The whole mod rests on this: moving a wolf from WildBeast(6) to PlayerAlly
+//  (11) is not "making it friendly" by some separate mechanism — it changes the
+//  inputs to the hostility function, and the function's own default branch does
+//  the rest. These checks pin that reasoning so a future change to IsEnemy
+//  cannot silently break "the wolf fights for me".
+// ---------------------------------------------------------------------------
+void TestFactionWritePayoff() {
+    // Before: a WildBeast is hostile to the player.
+    Check(IsEnemy(WildBeast, Player), "wild wolf is hostile to the player");
+    Check(WolfHostileToPlayer(WildBeast), "WolfHostileToPlayer agrees");
+
+    // After: PlayerAlly is in the player group, so it cannot attack the player.
+    Check(!IsEnemy(PlayerAlly, Player), "an ally wolf stops attacking the player");
+    Check(!WolfHostileToPlayer(PlayerAlly), "WolfHostileToPlayer agrees");
+    Check(IsFriend(PlayerAlly, Player), "and it reads as a friend");
+
+    // The part that makes it a *combat* ally rather than a passive pet:
+    // PlayerAlly has no case in the switch, so it falls through to
+    // `default: return true` and attacks everything outside the player group.
+    // If someone "fixes" the switch by adding a PlayerAlly case, this fails.
+    const uint8_t outsiders[] = {Vukah, Scavenger, Wildlife, Skeleton,
+                                 Fogger, Cyclops, Drak, Ancients, FarmAnimal};
+    for (uint8_t t : outsiders) {
+        Check(IsEnemy(PlayerAlly, t), "ally wolf attacks non-player factions");
+    }
+    // AutomatedPlayer is another player's character: still the same group.
+    Check(!IsEnemy(PlayerAlly, AutomatedPlayer), "ally wolf spares other players");
+
+    // Note the asymmetry: the Environment short-circuit tests the ATTACKER
+    // (`if (a == Environment) return false`), not the target. So an ally wolf
+    // does read as "hostile to faction 0" even though nothing of faction 0 ever
+    // fights back. This is what the engine's machine code does — asserted here
+    // so it is not mistaken for a bug and "fixed" into a divergence from the
+    // real routine. It has no gameplay effect: faction 0 entities are world
+    // geometry and are never valid combat targets.
+    Check(!IsEnemy(Environment, PlayerAlly), "environment never attacks anyone");
+    Check(IsEnemy(PlayerAlly, Environment),
+          "attacker-side check only: ally reads faction 0 as a target");
+}
+
 void TestPlayerGroup() {
     Check(IsPlayerGroup(Player), "Player is in the group");
     Check(IsPlayerGroup(AutomatedPlayer), "AutomatedPlayer is in the group");
@@ -220,6 +263,7 @@ int main() {
     TestSameFaction();
     TestSpecificPairs();
     TestFriend();
+    TestFactionWritePayoff();
     TestPlayerGroup();
     TestExhaustiveSanity();
     PrintTable();

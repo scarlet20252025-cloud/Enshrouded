@@ -39,7 +39,7 @@ echo.
 
 set FAILED=0
 
-echo --- [1/10] ECS probe self test -----------------------------------------
+echo --- [1/12] ECS probe self test -----------------------------------------
 set EXE=notfound
 for %%G in (
     "E:\SteamLibrary\steamapps\common\Enshrouded\enshrouded.exe"
@@ -65,7 +65,7 @@ if "%EXE%"=="notfound" (
 )
 echo.
 
-echo --- [2/10] taming rules ------------------------------------------------
+echo --- [2/12] taming rules ------------------------------------------------
 "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\tame-test.cpp" "%ROOT%\src\tame.cpp" ^
     -o "%BUILD%\tame-test.exe" >nul 2>&1
@@ -80,7 +80,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [3/10] combat follow plan -----------------------------------------
+echo --- [3/12] combat follow plan -----------------------------------------
 "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\follow-test.cpp" "%ROOT%\src\follow.cpp" ^
     -o "%BUILD%\follow-test.exe" >nul 2>&1
@@ -95,7 +95,28 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [4/10] mount state machine ----------------------------------------
+echo --- [4/12] faction relations -------------------------------------------
+"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
+    -I"%ROOT%\src" "%ROOT%\tools\faction-test.cpp" ^
+    -o "%BUILD%\faction-test.exe" > "%BUILD%\faction-build.out" 2>&1
+if errorlevel 1 (
+    echo     FAIL -- compile
+    type "%BUILD%\faction-build.out"
+    set FAILED=1
+) else (
+    "%BUILD%\faction-test.exe" > "%BUILD%\faction.out" 2>&1
+    findstr /C:"RESULT: PASS" "%BUILD%\faction.out" > nul
+    if errorlevel 1 (
+        echo     FAIL
+        type "%BUILD%\faction.out"
+        set FAILED=1
+    ) else (
+        echo     PASS -- hostility table matches the engine routine
+    )
+)
+echo.
+
+echo --- [5/12] mount state machine ----------------------------------------
 "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\mount-test.cpp" "%ROOT%\src\mount.cpp" ^
     -o "%BUILD%\mount-test.exe" >nul 2>&1
@@ -110,7 +131,28 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [5/10] detour engine ----------------------------------------------
+echo --- [6/12] follow set ------------------------------------------------
+"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
+    -I"%ROOT%\src" "%ROOT%\tools\followset-test.cpp" ^
+    "%ROOT%\src\followset.cpp" -o "%BUILD%\followset-test.exe" > "%BUILD%\followset-build.out" 2>&1
+if errorlevel 1 (
+    echo     FAIL -- compile
+    type "%BUILD%\followset-build.out"
+    set FAILED=1
+) else (
+    "%BUILD%\followset-test.exe" > "%BUILD%\followset.out" 2>&1
+    findstr /C:"RESULT: PASS" "%BUILD%\followset.out" > nul
+    if errorlevel 1 (
+        echo     FAIL
+        type "%BUILD%\followset.out"
+        set FAILED=1
+    ) else (
+        echo     PASS -- add/remove/clear/capacity stay packed
+    )
+)
+echo.
+
+echo --- [7/12] detour engine ----------------------------------------------
 "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\detour-test.cpp" "%ROOT%\src\detour.cpp" ^
     -o "%BUILD%\detour-test.exe" >nul 2>&1
@@ -125,9 +167,10 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [6/10] console command honesty ------------------------------------
+echo --- [8/12] console command honesty ------------------------------------
 "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\console-test.cpp" "%ROOT%\src\console.cpp" ^
+    "%ROOT%\src\followset.cpp" ^
     -o "%BUILD%\console-test.exe" > "%BUILD%\console-build.out" 2>&1
 if errorlevel 1 (
     echo     FAIL -- compile
@@ -146,10 +189,11 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [7/10] entity backend --------------------------------------------
+echo --- [9/12] entity backend --------------------------------------------
 "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\entityops-test.cpp" ^
     "%ROOT%\tools\gamehooks-stub.cpp" "%ROOT%\src\entityops.cpp" ^
+    "%ROOT%\src\followset.cpp" ^
     -o "%BUILD%\entityops-test.exe" > "%BUILD%\entityops-build.out" 2>&1
 if errorlevel 1 (
     echo     FAIL -- compile
@@ -168,7 +212,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [8/10] layer build -------------------------------------------------
+echo --- [10/12] layer build -------------------------------------------------
 call "%ROOT%\build.bat" > "%BUILD%\build.out" 2>&1
 if errorlevel 1 (
     echo     FAIL
@@ -179,7 +223,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo --- [9/10] vulkan loader sees the layer -------------------------------
+echo --- [11/12] vulkan loader sees the layer -------------------------------
 cmd /c "%ROOT%\tools\build-smoketest.bat" > "%BUILD%\smoke.out" 2>&1
 findstr /C:"RESULT: PASS" "%BUILD%\smoke.out" > nul
 if errorlevel 1 (
@@ -192,7 +236,7 @@ if errorlevel 1 (
 echo.
 
 echo ============================================================
-echo --- [10/10] source hygiene -------------------------------------------
+echo --- [12/12] source hygiene -------------------------------------------
 REM  Angle brackets are redirection operators to cmd.exe, so <cstdint> in an
 REM  echo line must be escaped. Writing the literal characters reads as a
 REM  redirect into a file named cstdint, and cmd aborts the whole script.
@@ -211,6 +255,17 @@ if errorlevel 1 (
     echo     FAIL -- duplicate ^<cstdint^> includes
     type "%BUILD%\dupinc.out"
     set FAILED=1
+)
+REM  Encoding: a PowerShell round-trip once destroyed 62 lines of src/mod.cpp by
+REM  re-encoding UTF-8 as GBK and back. Nothing in the build notices that -- the
+REM  file still compiles, it just renders mojibake -- so it has to be checked.
+python "%ROOT%\tools\check_encoding.py" > "%BUILD%\encoding.out" 2>&1
+if errorlevel 1 (
+    echo     FAIL -- a source file contains U+FFFD replacement characters
+    type "%BUILD%\encoding.out"
+    set FAILED=1
+) else (
+    echo     PASS -- no destroyed characters in any source file
 )
 echo.
 

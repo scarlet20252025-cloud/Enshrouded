@@ -487,6 +487,95 @@ submitted in bulk. That is the same 24-byte descriptor shape as §5.
 
 ---
 
+## 6a. What "a pet" actually is in this engine, and what it is not
+
+Worth its own section because the natural guess — "a tamed animal carries
+different components from a wild one" — is wrong, and the wrong guess sends you
+looking for components that will never appear.
+
+### The component set does not change
+
+`tools/tpl_diff.py` on a wild hound and its pet-marked sibling:
+
+```
+Enemy_Scavenger_Hound                             108 components
+Enemy_Scavenger_Heavy_Mage_Hound_Pet_SpawnAnim    109 components
+only in A: (none)
+only in B: keen::ecs::ScaleComponent
+shared:    108
+```
+
+One shared component set, one extra cosmetic component. Everything that makes
+the pet a pet is a *value* inside components both templates already have.
+
+### And the Faction value does not change either
+
+The sharper control is the same creature twice, so species is not a variable:
+
+```
+tools/tpl_vals.py Enemy_Scavenger_Hound Enemy_Scavenger_Heavy_Mage_Hound_Pet_SpawnAnim
+  Enemy01BehaviorState/enabledFeatures/len                    A=15   B=12
+  Enemy01BehaviorState/enabledFeatures[1]                     A=UseThreatSystem  B=Move
+  EnemyArsenalReference/arsenal                                A=e15c62d6…  B=6ac94f60…
+  EntityTagContainer/tags/len                                  A=3    B=2
+  EntityTagContainer/tags[0]/tag                               A=aae17144…  B=3446791d…
+```
+
+**Faction does not appear in that diff at all.** Both are `Scavenger`. So
+"pet" is not a faction, and it is not a component set. It is an entity tag plus
+behaviour flags, and the tag that distinguishes them appears on exactly one
+template in the whole game (checked across all 12267), so it is a per-template
+marker rather than a general "is a pet" component you can switch on at runtime.
+
+### What follows for a mod
+
+The player's own combat summons are `PlayerAlly`:
+
+```
+Player_Companion_FlyingSkull      Faction = PlayerAlly
+Player_Companion_ShockWisp_1      Faction = PlayerAlly
+Enemy_Companion_Bunny             Faction = Player
+Base_Companion                    Faction = Player
+```
+
+and a wolf is `WildBeast`. Because `IsEnemy` has no `PlayerAlly` case, it falls
+to `default: return true` — so an ally faction byte gives you **both** halves of
+"fights alongside me": the player-group rule (`IsEnemy(11, 7) == false`) stops it
+attacking you, and the default branch makes it attack every other faction. No AI
+work is required; it is a single byte. `tools/faction-test.cpp` pins this.
+
+### But "follow" has no native support
+
+`keen::ecs::EnemyFeatureMask` is a 32-bit mask over `keen::ecs::EnemyFeature`,
+whose complete enum is 27 values and does **not** contain `Follow`:
+
+```
+UseTaunt 0, UseThreatSystem 1, UseBlocking 2, Move 3, Prowl 4, Rotate 5,
+RotateWhileStanding 6, Patrol 7, Roaming 8, ShowSpawnSequence 9, ReturnHome 10,
+FleeHome 11, Combat 12, Interact 13, TriggerAlarm 14, CallForHelp 15, Run 16,
+IdleTurn 17, BlockProjectiles 18, SearchForCover 19, MoveToMarker 20,
+Sleep 21, RunAround 22, Circling 23, StunnedState 24, Awareness 25, Investigate 26
+```
+
+There is no "follow the player" behaviour flag to set. Related-looking
+components are dead ends for this purpose:
+
+- `keen::ecs::OwnerRelationship` (idx 733, 4 bytes, a single `ownerEntityId`)
+  is carried by **0 of 12267 templates** — it is attached at runtime, and its
+  nine `.text` reference sites are all non-`Enqueue` (`OTHER@…`), so it cannot
+  be written through the component-write path §5 describes.
+- `keen::ecs::PlayerFocus` (idx 706, 24 bytes) is carried only by `1_Player`,
+  `1_Player_AG2`, `AutomatedPlayer` and `Player_Vukah_Melee` — it is something
+  the player projects, not a follower's anchor.
+
+A follower therefore has to be driven from outside the AI: read the player's
+position (`entityops::PlayerPosition`) and write the companion's
+`CurrentTransform` (`entityops::MoveEntity`) each tick. That is the mod's job,
+not the engine's, and it is why `follow` lives in our code rather than being a
+component we flip.
+
+---
+
 ## 7. Things that look like the answer and are not
 
 Recorded because each one cost real time:

@@ -82,7 +82,7 @@ REM --- include paths --------------------------------------------------------
 set INC=-I"%ROOT%src" -I"%TP%\imgui" -I"%TP%\imgui\backends" -I"%TP%\Vulkan-Headers\include"
 
 REM --- sources --------------------------------------------------------------
-set SRC=%ROOT%src\entry.cpp %ROOT%src\layer.cpp %ROOT%src\mod.cpp %ROOT%src\ecs.cpp %ROOT%src\tame.cpp %ROOT%src\follow.cpp %ROOT%src\mount.cpp %ROOT%src\detour.cpp %ROOT%src\gamehooks.cpp %ROOT%src\reflect.cpp %ROOT%src\console.cpp %ROOT%src\console_ui.cpp %ROOT%src\entityops.cpp
+set SRC=%ROOT%src\entry.cpp %ROOT%src\layer.cpp %ROOT%src\mod.cpp %ROOT%src\ecs.cpp %ROOT%src\tame.cpp %ROOT%src\follow.cpp %ROOT%src\mount.cpp %ROOT%src\detour.cpp %ROOT%src\gamehooks.cpp %ROOT%src\reflect.cpp %ROOT%src\console.cpp %ROOT%src\console_ui.cpp %ROOT%src\entityops.cpp %ROOT%src\followset.cpp
 set IMGUI=%TP%\imgui\imgui.cpp %TP%\imgui\imgui_draw.cpp %TP%\imgui\imgui_tables.cpp %TP%\imgui\imgui_widgets.cpp %TP%\imgui\backends\imgui_impl_vulkan.cpp %TP%\imgui\backends\imgui_impl_win32.cpp
 
 if not exist "%TP%\imgui\backends\imgui_impl_vulkan.cpp" (

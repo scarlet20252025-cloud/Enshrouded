@@ -9,6 +9,7 @@
 
 #include "entitymgr.h"
 #include "faction.h"
+#include "followset.h"
 #include "gamedata.h"
 #include "gamehooks.h"
 #include "layout.h"
@@ -775,6 +776,55 @@ bool PlausibleMeters(double x, double y, double z) {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+//  Transform slot cache
+//
+//  The slot index for CurrentTransform depends only on the entity's *definition*
+//  (the 640-slot table), never on the individual entity: two wolves share one
+//  definition and one slot index. The search below costs one 0xf90-byte table
+//  read plus a read per 56-byte candidate, which is far too much to repeat every
+//  frame once a follower starts writing a position per tick.
+//
+//  So remember the answer per definition. A definition pointer is stable for the
+//  life of the world, and if it is ever reused for different data the value
+//  checks below reject the cached slot and the search runs again.
+// ---------------------------------------------------------------------------
+struct TransformSlotCache {
+    uintptr_t def = 0;
+    int slot = -1;
+    uint16_t stride = 0;
+    uint16_t offset = 0;   // slot's byte offset inside the entity chunk
+    uint32_t uses = 0;
+};
+
+TransformSlotCache g_tsCache[8];
+std::atomic<int> g_tsCacheNext{0};
+
+TransformSlotCache* FindCache(uintptr_t def) {
+    for (auto& c : g_tsCache) {
+        if (c.def == def && c.slot >= 0) return &c;
+    }
+    return nullptr;
+}
+
+void StoreCache(uintptr_t def, int slot, uint16_t stride, uint16_t offset) {
+    for (auto& c : g_tsCache) {
+        if (c.def == def) {
+            c.slot = slot;
+            c.stride = stride;
+            c.offset = offset;
+            c.uses = 0;
+            return;
+        }
+    }
+    const int i = g_tsCacheNext.fetch_add(1) % 8;
+    g_tsCache[i].def = def;
+    g_tsCache[i].slot = slot;
+    g_tsCache[i].stride = stride;
+    g_tsCache[i].offset = offset;
+    g_tsCache[i].uses = 0;
+}
+
 int FindTransformSlotImpl(uint32_t entityId, uint16_t* strideOut) {
     mgr::EntityRef ref;
     if (!Lookup(entityId, &ref)) {
@@ -783,11 +833,47 @@ int FindTransformSlotImpl(uint32_t entityId, uint16_t* strideOut) {
         return -1;
     }
     const auto* def = reinterpret_cast<const uint8_t*>(ref.def);
+    const uintptr_t defKey = reinterpret_cast<uintptr_t>(def);
+
+    // Fast path: this definition was solved before, so we know the slot index,
+    // stride and chunk offset and can address the component with no table read
+    // at all. Confirm the cached slot still reads as a plausible position before
+    // trusting it — a stale entry must fail loudly rather than make MoveEntity
+    // write into a random component.
+    if (TransformSlotCache* c = FindCache(defKey)) {
+        const uintptr_t addr = ref.chunk + c->offset +
+                               static_cast<size_t>(c->stride) * ref.slot;
+        bool ok = false;
+        if (addr) {
+            if (c->stride == kTransformF32Size) {
+                float f[3] = {0, 0, 0};
+                ok = layout::Read(addr, f, sizeof(f)) &&
+                     PlausibleMeters(f[0], f[1], f[2]) &&
+                     !(f[0] == 0.0f && f[1] == 0.0f && f[2] == 0.0f);
+            } else {
+                int64_t v[3] = {0, 0, 0};
+                ok = layout::Read(addr, v, sizeof(v)) &&
+                     PlausibleMeters(layout::FixedToMeters(v[0]),
+                                     layout::FixedToMeters(v[1]),
+                                     layout::FixedToMeters(v[2])) &&
+                     !(v[0] == 0 && v[1] == 0 && v[2] == 0);
+            }
+        }
+        if (ok) {
+            c->uses++;
+            if (strideOut) *strideOut = c->stride;
+            return c->slot;
+        }
+        WM_MOD_LOG("[wolfmount/entity] cached transform slot %d for def %p no "
+                   "longer validates; re-deriving", c->slot,
+                   reinterpret_cast<void*>(defKey));
+        c->slot = -1;
+    }
 
     // Read the definition tables once: SlotAddress() re-reads them per slot, and
     // this runs on the render thread.
     DefTables t;
-    if (!t.Load(reinterpret_cast<uintptr_t>(def))) return -1;
+    if (!t.Load(defKey)) return -1;
 
     int seen56 = 0;
     int seen32 = 0;
@@ -828,6 +914,7 @@ int FindTransformSlotImpl(uint32_t entityId, uint16_t* strideOut) {
         }
         if (pos[0] == 0 && pos[1] == 0 && pos[2] == 0) continue;
         if (strideOut) *strideOut = kTransformSize;
+        StoreCache(defKey, slot, kTransformSize, t.Offset(slot));
         return slot;
     }
 
@@ -837,6 +924,7 @@ int FindTransformSlotImpl(uint32_t entityId, uint16_t* strideOut) {
                    "a live value (%d candidates, %d float transforms); using "
                    "slot %d (float3 position)", entityId, seen56, seen32, first32);
         if (strideOut) *strideOut = kTransformF32Size;
+        StoreCache(defKey, first32, kTransformF32Size, t.Offset(first32));
         return first32;
     }
 
@@ -1172,6 +1260,190 @@ int SpawnNearPlayer(const uint8_t guid[16], int count, double distance,
     WM_MOD_LOG("[wolfmount/spawn] requested %d, verified live %d", count,
                spawned);
     return spawned;
+}
+
+// Spawn and immediately enrol the result as a follower. Kept separate from
+// SpawnNearPlayer so a spawn used for a test target does not start trailing the
+// player by accident.
+int SpawnFollower(const uint8_t guid[16], int count, double distance,
+                  uint32_t level) {
+    double x = 0, y = 0, z = 0;
+    const bool havePos = PlayerPosition(&x, &y, &z);
+    int spawned = 0;
+    for (int i = 0; i < count; ++i) {
+        const double angle = 2.0 * 3.14159265358979323846 * i / count;
+        const double sx = havePos ? x + distance * std::cos(angle) : 0.0;
+        const double sz = havePos ? z + distance * std::sin(angle) : 0.0;
+        const uint32_t id = SpawnAt(guid, sx, havePos ? y + 0.5 : 0.0, sz, level);
+        if (id == 0) {
+            WM_MOD_LOG("[wolfmount/spawn] follower attempt %d/%d: factory "
+                       "returned 0", i + 1, count);
+            continue;
+        }
+        mgr::EntityRef ref;
+        if (!Lookup(id, &ref)) {
+            WM_MOD_LOG("[wolfmount/spawn] follower attempt %d/%d: id=%u is not "
+                       "in the manager, not enrolling it", i + 1, count, id);
+            continue;
+        }
+        ++spawned;
+        // A fresh wolf is WildBeast: it would bite the player, and its own AI
+        // would treat the player as prey. Faction is the byte the AI actually
+        // reads, and the spawn descriptor cannot set it (the factory reads only
+        // the template GUID and the component count -- docs/TECHNIQUE.md §5a),
+        // so write it now. PlayerAlly gives both halves of "fights for me":
+        // the player-group rule stops it attacking us, and IsEnemy's default
+        // branch makes it attack every other faction.
+        if (FactionSlot() >= 0) {
+            if (!WriteFaction(id, faction::kPlayerAlly)) {
+                WM_MOD_LOG("[wolfmount/spawn] entity %u: faction write FAILED; "
+                           "it stays hostile", id);
+            }
+        } else {
+            WM_MOD_LOG("[wolfmount/spawn] entity %u: faction slot not discovered "
+                       "yet, so it is still WildBeast and will attack", id);
+        }
+        // Enrol it right away: a new companion standing at the template's
+        // default position would otherwise wait for the first follow tick to be
+        // brought over, which reads as "the summon did nothing".
+        FollowAdd(id);
+        const int f = ReadFaction(id);
+        WM_MOD_LOG("[wolfmount/spawn] follower attempt %d/%d: id=%u live=1 "
+                   "faction=%d", i + 1, count, id, f);
+    }
+    WM_MOD_LOG("[wolfmount/spawn] followers requested %d, verified live %d",
+               count, spawned);
+    return spawned;
+}
+
+// ---------------------------------------------------------------------------
+//  Follow loop
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::atomic<uint32_t> g_followTick{0};
+
+} // namespace
+
+bool FollowAdd(uint32_t entityId) {
+    const bool ok = followset::Add(entityId);
+    if (!ok && entityId) {
+        WM_MOD_LOG("[wolfmount/follow] set full (%d); not adding entity %u",
+                   followset::kMaxFollowers, entityId);
+    } else if (ok) {
+        WM_MOD_LOG("[wolfmount/follow] entity %u now follows (%d in set)",
+                   entityId, followset::Count());
+    }
+    return ok;
+}
+
+void FollowRemove(uint32_t entityId) {
+    const int before = followset::Count();
+    followset::Remove(entityId);
+    if (followset::Count() != before) {
+        WM_MOD_LOG("[wolfmount/follow] entity %u no longer follows (%d left)",
+                   entityId, followset::Count());
+    }
+}
+
+void FollowClear() {
+    followset::Clear();
+    WM_MOD_LOG("[wolfmount/follow] follow set cleared");
+}
+
+int FollowCount() { return followset::Count(); }
+
+int FollowTick(double behindMetres, double teleportBeyond) {
+    const int n = followset::Count();
+    if (n == 0) return 0;
+
+    // This runs from the render thread every frame, so it must not probe the
+    // manager or scan for the player unless those answers are already cheap.
+    // Both are cached by their own code paths, but a world without a manager
+    // should cost nothing at all.
+    if (!HasManager()) return 0;
+
+    double px = 0, py = 0, pz = 0;
+    if (!PlayerPosition(&px, &py, &pz)) return 0;
+
+    // Stagger: moving every follower on every frame is pointless (the AI cannot
+    // use sub-frame precision) and multiplies the log noise. One follower per
+    // tick round-robins through the set, so a set of N is refreshed every N
+    // frames and a set of one is refreshed every frame.
+    const uint32_t tick = g_followTick.fetch_add(1, std::memory_order_relaxed);
+    const int who = static_cast<int>(tick % static_cast<uint32_t>(n));
+
+    const uint32_t id = followset::At(who);
+    if (!id) return 0;
+
+    mgr::EntityRef ref;
+    if (!Lookup(id, &ref)) {
+        // The companion is gone (killed, or unloaded with its cell). Drop it so
+        // the set does not slowly fill with ghosts.
+        WM_MOD_LOG("[wolfmount/follow] entity %u is no longer live; dropping it",
+                   id);
+        FollowRemove(id);
+        return 0;
+    }
+
+    // Aim slightly behind the player rather than on top of them: a follower that
+    // targets the player's own position jitters and shoves the player around.
+    const double tx = px - behindMetres;
+    const double ty = py;
+    const double tz = pz - behindMetres;
+
+    // Read where it is now, so a far-away follower is teleported rather than
+    // asked to walk across the map.
+    uint16_t stride = 0;
+    const int slot = FindTransformSlotEx(id, &stride);
+    if (slot < 0) return 0;
+
+    const uintptr_t addr = mgr::SlotAddressOf(ref, slot);
+    if (!addr) return 0;
+
+    double cx = 0, cy = 0, cz = 0;
+    if (stride == kTransformF32Size) {
+        float f[3] = {0, 0, 0};
+        if (!layout::Read(addr, f, sizeof(f))) return 0;
+        cx = f[0]; cy = f[1]; cz = f[2];
+    } else {
+        int64_t v[3] = {0, 0, 0};
+        if (!layout::Read(addr, v, sizeof(v))) return 0;
+        cx = layout::FixedToMeters(v[0]);
+        cy = layout::FixedToMeters(v[1]);
+        cz = layout::FixedToMeters(v[2]);
+    }
+
+    const double dx = tx - cx;
+    const double dz = tz - cz;
+    const double dist = std::sqrt(dx * dx + dz * dz);
+
+    // Already close enough: leave it alone so its own AI keeps running. This is
+    // the important half of the design -- the wolf's combat behaviour lives in
+    // the engine, and continuously rewriting its position would fight it.
+    if (dist < behindMetres * 2.0) return 0;
+
+    if (dist > teleportBeyond) {
+        if (MoveEntity(id, tx, ty, tz)) {
+            WM_MOD_LOG("[wolfmount/follow] entity %u teleported to the player "
+                       "(was %.0f m away)", id, dist);
+            return 1;
+        }
+        return 0;
+    }
+
+    // Walk it part of the way. A fraction per tick keeps the motion smooth and
+    // stops the follower from overshooting when the player is moving.
+    const double step = dist < 8.0 ? dist : 8.0;
+    const double nx = cx + dx / dist * step;
+    const double nz = cz + dz / dist * step;
+    if (MoveEntity(id, nx, cy, nz)) {
+        WM_MOD_LOG("[wolfmount/follow] entity %u stepped %.1f m toward the "
+                   "player (%.1f m to go)", id, step, dist - step);
+        return 1;
+    }
+    return 0;
 }
 
 void DumpEntity(uint32_t entityId, int maxSlots) {

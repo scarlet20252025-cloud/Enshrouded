@@ -280,6 +280,21 @@ void PollInput() {
         // wild beasts are visible through the discovered slot.
         snapshotDone = entityops::LogEntitySnapshot();
     }
+
+    // Stage 4: the follow loop.
+    //
+    // This engine has no follow behaviour to enable (see entityops.h), so a
+    // companion is moved by us. That makes this the one part of the mod that
+    // runs every frame, so it is written to cost nothing when there is nothing
+    // to do: it returns immediately unless a world, a player position and at
+    // least one live follower are all known.
+    //
+    // 8 m behind and a 40 m teleport threshold are chosen so a companion keeps
+    // up at walking pace but appears next to the player after a glide or a fast
+    // travel instead of hiking across the map.
+    if (entityops::FollowCount() > 0) {
+        entityops::FollowTick(8.0, 40.0);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -385,7 +400,7 @@ void RequestSummon() {
         return;
     }
 
-    const int made = entityops::SpawnNearPlayer(guid, 1, 3.0, 1);
+    const int made = entityops::SpawnFollower(guid, 1, 3.0, 1);
     if (made <= 0) {
         // Say what actually failed instead of implying a wolf is on its way.
         g_lastAction = "spawn factory produced no live wolf (see the log)";
@@ -393,8 +408,13 @@ void RequestSummon() {
     }
 
     g_summonCount++;
-    static char buf[96];
-    snprintf(buf, sizeof(buf), "spawned %d wolf from the template", made);
+    static char buf[128];
+    // SpawnFollower already rewrote each wolf's Faction to PlayerAlly (a fresh
+    // wolf would otherwise bite the player) and enrolled it in the follow set,
+    // so this reports the state rather than promising a later step.
+    snprintf(buf, sizeof(buf),
+             "spawned %d wolf, faction -> PlayerAlly, following (%d in set)",
+             made, entityops::FollowCount());
     g_lastAction = buf;
 }
 
