@@ -1035,13 +1035,13 @@ Studio\18\BuildTools` contains only MSBuild and .NET — no `cl.exe`.
 Usable clang found at:
 
 ```
-C:\Users\63526\coopanion-native-trial\toolchain\llvm-mingw-20261006-ucrt-x86_64\bin
+<toolchain>in
 clang version 23.1.3
 Target: x86_64-w64-windows-gnu
 ```
 
 A second copy exists at
-`C:\Users\63526\softvoice-deploy-check\runtime\native\llvm-mingw\...`.
+`<user>\softvoice-deploy-check\runtime\native\llvm-mingw\...`.
 
 `WinLibs` was installed via winget but its install location was not discoverable
 (no `gcc.exe` anywhere on C: or D:); the llvm-mingw toolchains above were used
@@ -1922,7 +1922,7 @@ lld: error: unable to find library -l:vulkan-1.a
 
 ### 硬编码工具链路径
 
-`set TOOLCHAIN=C:\Users\63526\...` 写死了作者的个人目录，别人必然构建不了。改为依次尝试
+`set TOOLCHAIN=<user>\...` 写死了作者的个人目录，别人必然构建不了。改为依次尝试
 `WOLFMOUNT_LLVM` 环境变量 → `PATH` 里的 clang → 本机 llvm-mingw。
 
 ### 顺带修掉的两个可移植性问题

@@ -1,5 +1,7 @@
 @echo off
-setlocal
+REM  EnableDelayedExpansion: the toolchain block tests a variable it just set
+REM  inside the same parenthesised block.
+setlocal EnableDelayedExpansion
 
 REM ---------------------------------------------------------------------------
 REM  Run every WolfMount test and print a single summary line.
@@ -8,15 +10,30 @@ REM ---------------------------------------------------------------------------
 
 set ROOT=%~dp0..
 set BUILD=%ROOT%\build
-set TOOLCHAIN=C:\Users\63526\coopanion-native-trial\toolchain\llvm-mingw-20261006-ucrt-x86_64\bin
+
+REM  Same toolchain discovery as build.bat, so the tests run against the same
+REM  clang the DLL was built with.
+set TOOLCHAIN=
+if defined WOLFMOUNT_LLVM set TOOLCHAIN=%WOLFMOUNT_LLVM%
+if not defined TOOLCHAIN (
+    for %%C in (clang.exe) do if not "%%~$PATH:C"=="" set TOOLCHAIN=%%~dp$PATH:C
+)
 
 if not exist "%TOOLCHAIN%\clang++.exe" (
-    echo [ERROR] clang not found
+    echo [ERROR] clang not found. Set WOLFMOUNT_LLVM to your llvm-mingw bin directory.
     exit /b 1
 )
 
 echo ============================================================
 echo  WolfMount test suite
+
+REM  Shared compile+link flags. -fuse-ld=lld matters for the same reason it
+REM  does in build.bat: GNU ld cannot write an output path containing non-ASCII
+REM  characters. TFLAGS also carries -lpthread when the toolchain is
+REM  POSIX-threaded (WinLibs); llvm-mingw is win32-threaded and has no such
+REM  archive, so linking it there would fail.
+set TFLAGS=-fuse-ld=lld -static-libstdc++ -static-libgcc
+if exist "%TOOLCHAIN%\..\x86_64-w64-mingw32\lib\libpthread.a" set TFLAGS=%TFLAGS% -lpthread
 echo ============================================================
 echo.
 
@@ -34,7 +51,7 @@ for %%G in (
 if "%EXE%"=="notfound" (
     echo     SKIP -- enshrouded.exe not found
 ) else (
-    "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 -static-libstdc++ -static-libgcc ^
+    "%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
         "%ROOT%\tools\ecs-selftest.cpp" -o "%BUILD%\ecs-selftest.exe" >nul 2>&1
     "%BUILD%\ecs-selftest.exe" "%EXE%" > "%BUILD%\ecs.out" 2>&1
     findstr /C:"RESULT: PASS" "%BUILD%\ecs.out" > nul
@@ -49,7 +66,7 @@ if "%EXE%"=="notfound" (
 echo.
 
 echo --- [2/9] taming rules ------------------------------------------------
-"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 -static-libstdc++ -static-libgcc ^
+"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\tame-test.cpp" "%ROOT%\src\tame.cpp" ^
     -o "%BUILD%\tame-test.exe" >nul 2>&1
 "%BUILD%\tame-test.exe" > "%BUILD%\tame.out" 2>&1
@@ -64,7 +81,7 @@ if errorlevel 1 (
 echo.
 
 echo --- [3/9] combat follow plan -----------------------------------------
-"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 -static-libstdc++ -static-libgcc ^
+"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\follow-test.cpp" "%ROOT%\src\follow.cpp" ^
     -o "%BUILD%\follow-test.exe" >nul 2>&1
 "%BUILD%\follow-test.exe" > "%BUILD%\follow.out" 2>&1
@@ -79,7 +96,7 @@ if errorlevel 1 (
 echo.
 
 echo --- [4/9] mount state machine ----------------------------------------
-"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 -static-libstdc++ -static-libgcc ^
+"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\mount-test.cpp" "%ROOT%\src\mount.cpp" ^
     -o "%BUILD%\mount-test.exe" >nul 2>&1
 "%BUILD%\mount-test.exe" > "%BUILD%\mount.out" 2>&1
@@ -94,7 +111,7 @@ if errorlevel 1 (
 echo.
 
 echo --- [5/9] detour engine ----------------------------------------------
-"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 -static-libstdc++ -static-libgcc ^
+"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\detour-test.cpp" "%ROOT%\src\detour.cpp" ^
     -o "%BUILD%\detour-test.exe" >nul 2>&1
 "%BUILD%\detour-test.exe" > "%BUILD%\detour.out" 2>&1
@@ -109,7 +126,7 @@ if errorlevel 1 (
 echo.
 
 echo --- [6/9] console command honesty ------------------------------------
-"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 -static-libstdc++ -static-libgcc ^
+"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\console-test.cpp" "%ROOT%\src\console.cpp" ^
     -o "%BUILD%\console-test.exe" > "%BUILD%\console-build.out" 2>&1
 if errorlevel 1 (
@@ -130,7 +147,7 @@ if errorlevel 1 (
 echo.
 
 echo --- [7/9] entity backend --------------------------------------------
-"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 -static-libstdc++ -static-libgcc ^
+"%TOOLCHAIN%\clang++.exe" -std=c++17 -O1 %TFLAGS% ^
     -I"%ROOT%\src" "%ROOT%\tools\entityops-test.cpp" ^
     "%ROOT%\tools\gamehooks-stub.cpp" "%ROOT%\src\entityops.cpp" ^
     -o "%BUILD%\entityops-test.exe" > "%BUILD%\entityops-build.out" 2>&1

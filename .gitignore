@@ -36,6 +36,15 @@ wolfmount_layer.dll
 wolfmount_layer.dll.log
 wolfmount_layer.dll.settings.json
 
+# ---- local archaeology -----------------------------------------------------
+# tools/probes and tools/scratch are the one-shot scripts written while
+# reverse-engineering a specific question. They are kept locally as a record but
+# are not published: they carry absolute paths from the machine that wrote them,
+# and their findings are already written up in docs/TECHNIQUE.md and MODLOG.md
+# in a form that does not need the script. The reusable tools stay in tools\.
+tools/probes/
+tools/scratch/
+
 # ---- local run artifacts ---------------------------------------------------
 # Screenshots, log dumps and probe output created while testing.
 *.png

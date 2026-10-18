@@ -13,20 +13,11 @@ REM --- locate the toolchain ---------------------------------------------------
 REM  Order of preference:
 REM    1. WOLFMOUNT_LLVM env var, so CI or a contributor can pin one.
 REM    2. clang already on PATH (the common case: llvm-mingw, or a full LLVM).
-REM    3. The development machine's llvm-mingw, for whoever wrote this.
-REM
-REM  Hardcoding only (3) is what made this repo un-buildable for anyone else, so
-REM  it is last and it is overridable.
 set TOOLCHAIN=
 if defined WOLFMOUNT_LLVM set TOOLCHAIN=%WOLFMOUNT_LLVM%
 
 if not defined TOOLCHAIN (
     for %%C in (clang.exe) do if not "%%~$PATH:C"=="" set TOOLCHAIN=%%~dp$PATH:C
-)
-
-if not defined TOOLCHAIN (
-    set CANDIDATE=C:\Users\63526\coopanion-native-trial\toolchain\llvm-mingw-20261006-ucrt-x86_64\bin
-    if exist "!CANDIDATE!\clang.exe" set TOOLCHAIN=!CANDIDATE!
 )
 
 if not defined TOOLCHAIN (

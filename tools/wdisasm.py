@@ -5,12 +5,26 @@ Usage:
     python dis.py 0x480C70 0x481060              # range
     python dis.py -site 0x222861                 # one call site +-0x30 bytes
 """
+import os
 import re
+import shutil
 import subprocess
 import sys
 
-OBJ = r"C:\Users\63526\coopanion-native-trial\toolchain\llvm-mingw-20261006-ucrt-x86_64\bin\llvm-objdump.exe"
-EXE = r"E:\SteamLibrary\steamapps\common\Enshrouded\enshrouded.exe"
+
+def _find_objdump():
+    """Locate llvm-objdump without hardcoding anyone's install path."""
+    clang = shutil.which("clang")
+    if clang:
+        cand = os.path.join(os.path.dirname(clang), "llvm-objdump.exe")
+        if os.path.exists(cand):
+            return cand
+    return shutil.which("llvm-objdump") or "llvm-objdump"
+
+
+OBJ = _find_objdump()
+EXE = os.environ.get("ENSHROUDED_EXE",
+                     r"E:\SteamLibrary\steamapps\common\Enshrouded\enshrouded.exe")
 
 
 def dis(start, stop):

@@ -10,13 +10,33 @@
 # Uses llvm-readobj rather than hand-parsed PE so the result is trustworthy.
 
 param(
-    [string]$Root     = "E:\DSH\肥鱼乐园\WolfMount",
-    [string]$BuildDir = "E:\DSH\肥鱼乐园\WolfMount\build",
-    [string]$GameDir  = "E:\SteamLibrary\steamapps\common\Enshrouded"
+    # Default to this script's own parent directory, so the verifier works from
+    # any checkout location rather than one developer's absolute path.
+    [string]$Root     = (Split-Path $PSScriptRoot -Parent),
+    [string]$BuildDir = "",
+    [string]$GameDir  = ""
 )
 
+if (-not $BuildDir) { $BuildDir = Join-Path $Root 'build' }
+if (-not $GameDir) {
+    # Reuse the same Steam-discovery helper the installer uses.
+    $found = & (Join-Path $PSScriptRoot 'find-game.ps1') 2>$null
+    if ($found) { $GameDir = $found }
+}
+
 $ErrorActionPreference = 'Stop'
-$TOOLCHAIN = "C:\Users\63526\coopanion-native-trial\toolchain\llvm-mingw-20261006-ucrt-x86_64\bin"
+
+# Locate the toolchain the same way build.bat does, so this verifier works on
+# any machine and does not bake in one developer's install path.
+$TOOLCHAIN = $env:WOLFMOUNT_LLVM
+if (-not $TOOLCHAIN) {
+    $clang = Get-Command clang.exe -ErrorAction SilentlyContinue
+    if ($clang) { $TOOLCHAIN = Split-Path $clang.Source -Parent }
+}
+if (-not $TOOLCHAIN -or -not (Test-Path (Join-Path $TOOLCHAIN 'clang.exe'))) {
+    Write-Host "  FAIL  clang not found. Set WOLFMOUNT_LLVM to your llvm-mingw bin directory."
+    exit 1
+}
 
 $fail = 0
 function Check([string]$label, [bool]$ok, [string]$detail = "") {

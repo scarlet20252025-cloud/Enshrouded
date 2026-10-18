@@ -144,8 +144,19 @@ def main():
     elif cmd == 'dis':
         va = int(sys.argv[2], 0)
         n = int(sys.argv[3], 0)
+        import shutil
         import subprocess
-        objdump = r"C:\Users\63526\coopanion-native-trial\toolchain\llvm-mingw-20261006-ucrt-x86_64\bin\llvm-objdump.exe"
+        # Resolve llvm-objdump without hardcoding anyone's install path: prefer
+        # the directory clang lives in (so it matches the toolchain build.bat
+        # picked), then PATH, then let the OS resolve a bare name.
+        objdump = None
+        clang = shutil.which('clang')
+        if clang:
+            cand = os.path.join(os.path.dirname(clang), 'llvm-objdump.exe')
+            if os.path.exists(cand):
+                objdump = cand
+        if not objdump:
+            objdump = shutil.which('llvm-objdump') or 'llvm-objdump'
         r = subprocess.run([objdump, '-d', '--start-address=%d' % va,
                             '--stop-address=%d' % (va + n), EXE],
                            capture_output=True, text=True)
