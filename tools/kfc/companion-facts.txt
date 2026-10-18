@@ -1,0 +1,710 @@
+################################################################
+# Base_Companion
+# name : Base_Companion
+# guid : 2a931d54-81e9-4ee4-86c4-27271b0ea5a3
+################################################################
+COMPONENTS (86):
+  keen::ecs::Actor
+  keen::ecs::ActorInput
+  keen::ecs::ActorRotation
+  keen::ecs::Aggro
+  keen::ecs::AnimationGraphComponent2
+  keen::ecs::AnimationGraphResourceComponent2
+  keen::ecs::AnimationGraphSlotComponent
+  keen::ecs::BuffContainer
+  keen::ecs::CapsuleColliderData
+  keen::ecs::CheckLineAboveSensor
+  keen::ecs::ClearPathToTarget
+  keen::ecs::ClientActor
+  keen::ecs::ClientAnimationGraphInput
+  keen::ecs::ClientAnimationGraphInputLerp
+  keen::ecs::ClientCollider
+  keen::ecs::ClientLineOfSightState
+  keen::ecs::ClientLocomotion
+  keen::ecs::ClientNoBuildZone
+  keen::ecs::ClientWaterFx
+  keen::ecs::Collider
+  keen::ecs::ColliderResourceComponent
+  keen::ecs::CollisionFeedbackMaterialComponent
+  keen::ecs::CombatFlags
+  keen::ecs::CombatTargetActor
+  keen::ecs::ControlCombatTarget
+  keen::ecs::CurrentTransform
+  keen::ecs::Debug
+  keen::ecs::Dexterity
+  keen::ecs::DismantleOverride
+  keen::ecs::Enemy01BehaviorState
+  keen::ecs::EnemyArsenalReference
+  keen::ecs::EnemyScaling
+  keen::ecs::Faction
+  keen::ecs::FallDamage
+  keen::ecs::FleeSensor
+  keen::ecs::Gravity
+  keen::ecs::Health
+  keen::ecs::HealthBar
+  keen::ecs::HermiteInterpolation
+  keen::ecs::HitReactionBehavior
+  keen::ecs::Impulse
+  keen::ecs::InertialFrame
+  keen::ecs::Intelligence
+  keen::ecs::LastTransform
+  keen::ecs::Level
+  keen::ecs::LifeTime
+  keen::ecs::Locomotion
+  keen::ecs::ModelComponent
+  keen::ecs::ModelRenderHint
+  keen::ecs::ModelResource
+  keen::ecs::Movement
+  keen::ecs::MovementCollider
+  keen::ecs::MovementColliderConfig
+  keen::ecs::MovementSensor
+  keen::ecs::MovementVector
+  keen::ecs::NetworkActor
+  keen::ecs::NetworkAnimationGraphInput
+  keen::ecs::NetworkEnemy
+  keen::ecs::NetworkHealth
+  keen::ecs::NetworkLevel
+  keen::ecs::NetworkLocomotion
+  keen::ecs::NetworkMovementVelocity
+  keen::ecs::NetworkStamina
+  keen::ecs::PathFinder
+  keen::ecs::PathGridInteraction
+  keen::ecs::PathWalker
+  keen::ecs::RenderTransform
+  keen::ecs::SelectedTargets
+  keen::ecs::ServerAnimationGraphComponent2
+  keen::ecs::ServerAnimationGraphInput
+  keen::ecs::ServerAnimationGraphSlotComponent
+  keen::ecs::SlopeConfig
+  keen::ecs::SpawnTime
+  keen::ecs::SphereColliderData
+  keen::ecs::Stamina
+  keen::ecs::StaminaRecharge
+  keen::ecs::SteeringAgent
+  keen::ecs::SteeringBehavior_LookAhead
+  keen::ecs::SteeringBehavior_Separation
+  keen::ecs::SteeringLocomotion
+  keen::ecs::Strength
+  keen::ecs::TargetingTransform
+  keen::ecs::TeleportCount
+  keen::ecs::TemplateResource
+  keen::ecs::UiOffsets
+  keen::ecs::Velocity
+
+KEY FIELDS:
+  [keen::ecs::Faction]
+    { "$type": "keen::ecs::Faction", "$value": { "faction": "Player" } }
+  [keen::ecs::Aggro]
+    { "$type": "keen::ecs::Aggro", "$value": { "applyEnemyValue": true, "sightCheckSlot": "Head" } }
+  [keen::ecs::CombatTargetActor]
+    { "$type": "keen::ecs::CombatTargetActor", "$value": { "activeAbilityMask": [], "combinedState": [], "lastRangedWeaponUsage": { "value": 0 } } }
+  [keen::ecs::Enemy01BehaviorState]
+    { "$type": "keen::ecs::Enemy01BehaviorState", "$value": { "combatSetup": { "preferedDistance": 6.0, "preferedDistanceVariation": 2.0, "preferedDistanceEngaged": 1.75, "preferedDistanceEngagedVariation": 0.5, "preferedDistanceInWater": 0.0, "preferedDistanceInWaterVariation": 0.0, "maxVerticalDistanc ...
+
+################################################################
+# Enemy_Companion_Wildlife
+# name : Enemy_Companion_Wildlife
+# guid : f2358637-5ce7-4925-bda5-ca68fab94700
+################################################################
+COMPONENTS (101):
+  keen::ecs::Actor
+  keen::ecs::ActorInput
+  keen::ecs::ActorRotation
+  keen::ecs::Aggro
+  keen::ecs::AnimationGraphResourceComponent2
+  keen::ecs::BuffContainer
+  keen::ecs::CapsuleColliderData
+  keen::ecs::CheckLineAboveSensor
+  keen::ecs::ClearPathToTarget
+  keen::ecs::ClientActor
+  keen::ecs::ClientAnimationGraphInput
+  keen::ecs::ClientAnimationGraphInputLerp
+  keen::ecs::ClientCollider
+  keen::ecs::ClientLineOfSightState
+  keen::ecs::ClientLocomotion
+  keen::ecs::ClientNoBuildZone
+  keen::ecs::ClientWaterFx
+  keen::ecs::Collider
+  keen::ecs::ColliderResourceComponent
+  keen::ecs::CollisionFeedbackMaterialComponent
+  keen::ecs::CombatFlags
+  keen::ecs::CombatTargetActor
+  keen::ecs::ControlCombatTarget
+  keen::ecs::CurrentTransform
+  keen::ecs::DamageMod
+  keen::ecs::DamageSusceptibility
+  keen::ecs::Debug
+  keen::ecs::Dexterity
+  keen::ecs::DismantleOverride
+  keen::ecs::DoNotSave
+  keen::ecs::Enemy01BehaviorState
+  keen::ecs::EnemyArsenalReference
+  keen::ecs::EnemyMarkerCheck
+  keen::ecs::EnemyScaling
+  keen::ecs::EntityTagContainer
+  keen::ecs::ExecutionTarget
+  keen::ecs::ExperienceSource
+  keen::ecs::Faction
+  keen::ecs::Fade
+  keen::ecs::FallDamage
+  keen::ecs::FleeSensor
+  keen::ecs::FriendSensor
+  keen::ecs::GrassEffector
+  keen::ecs::Gravity
+  keen::ecs::HardLockTarget
+  keen::ecs::Health
+  keen::ecs::HealthBar
+  keen::ecs::HermiteInterpolation
+  keen::ecs::HitReactionBehavior
+  keen::ecs::HitStopComponent
+  keen::ecs::Impulse
+  keen::ecs::InertialFrame
+  keen::ecs::Intelligence
+  keen::ecs::LastTransform
+  keen::ecs::Level
+  keen::ecs::Locomotion
+  keen::ecs::ModelComponent
+  keen::ecs::ModelRenderHint
+  keen::ecs::ModelResource
+  keen::ecs::Movement
+  keen::ecs::MovementCollider
+  keen::ecs::MovementColliderConfig
+  keen::ecs::MovementSensor
+  keen::ecs::MovementVector
+  keen::ecs::NetworkActor
+  keen::ecs::NetworkAnimationGraphInput
+  keen::ecs::NetworkEnemy
+  keen::ecs::NetworkHealth
+  keen::ecs::NetworkLevel
+  keen::ecs::NetworkLocomotion
+  keen::ecs::NetworkMovementVelocity
+  keen::ecs::NetworkStamina
+  keen::ecs::PacifiedState
+  keen::ecs::PathFinder
+  keen::ecs::PathGridInteraction
+  keen::ecs::PathWalker
+  keen::ecs::PlayerCombatTarget
+  keen::ecs::RandomLoot
+  keen::ecs::RandomLootContainer
+  keen::ecs::RandomLootSlotCount
+  keen::ecs::RenderTeleportCount
+  keen::ecs::RenderTransform
+  keen::ecs::SelectedTargets
+  keen::ecs::ServerAnimationGraphInput
+  keen::ecs::ServerTarget
+  keen::ecs::SlopeConfig
+  keen::ecs::SnowDisplacementComponent
+  keen::ecs::SpawnTime
+  keen::ecs::SphereColliderData
+  keen::ecs::Stamina
+  keen::ecs::StaminaRecharge
+  keen::ecs::SteeringAgent
+  keen::ecs::SteeringBehavior_LookAhead
+  keen::ecs::SteeringBehavior_Separation
+  keen::ecs::SteeringLocomotion
+  keen::ecs::Strength
+  keen::ecs::TargetingTransform
+  keen::ecs::TeleportCount
+  keen::ecs::TemplateResource
+  keen::ecs::UiOffsets
+  keen::ecs::Velocity
+
+KEY FIELDS:
+  [keen::ecs::Faction]
+    { "$type": "keen::ecs::Faction", "$value": { "faction": "Fogger" } }
+  [keen::ecs::Aggro]
+    { "$type": "keen::ecs::Aggro", "$value": { "applyEnemyValue": true, "sightCheckSlot": "Head" } }
+  [keen::ecs::FriendSensor]
+    { "$type": "keen::ecs::FriendSensor", "$value": { "checkRadius": 32.0, "friendsInRange": [ { "id": 0 }, { "id": 0 }, { "id": 0 }, { "id": 0 }, { "id": 0 }, { "id": 0 }, { "id": 0 }, { "id": 0 } ] } }
+  [keen::ecs::CombatTargetActor]
+    { "$type": "keen::ecs::CombatTargetActor", "$value": { "activeAbilityMask": [], "combinedState": [], "lastRangedWeaponUsage": { "value": 0 } } }
+  [keen::ecs::Enemy01BehaviorState]
+    { "$type": "keen::ecs::Enemy01BehaviorState", "$value": { "combatSetup": { "preferedDistance": 6.0, "preferedDistanceVariation": 2.0, "preferedDistanceEngaged": 1.75, "preferedDistanceEngagedVariation": 0.5, "preferedDistanceInWater": 0.0, "preferedDistanceInWaterVariation": 0.0, "maxVerticalDistanc ...
+
+################################################################
+# Companion_Test
+# name : Companion_Test
+# guid : 83fa0d96-c6bc-4c0a-a9bc-88494938fa19
+################################################################
+COMPONENTS (111):
+  keen::ecs::Actor
+  keen::ecs::ActorInput
+  keen::ecs::ActorRotation
+  keen::ecs::Aggro
+  keen::ecs::AnimationGraphComponent2
+  keen::ecs::AnimationGraphResourceComponent2
+  keen::ecs::AnimationGraphSlotComponent
+  keen::ecs::BuffContainer
+  keen::ecs::CapsuleColliderData
+  keen::ecs::CheckLineAboveSensor
+  keen::ecs::ClearPathToTarget
+  keen::ecs::ClientActor
+  keen::ecs::ClientAnimationGraphInput
+  keen::ecs::ClientAnimationGraphInputLerp
+  keen::ecs::ClientCollider
+  keen::ecs::ClientLineOfSightState
+  keen::ecs::ClientLocomotion
+  keen::ecs::ClientNoBuildZone
+  keen::ecs::ClientWaterFx
+  keen::ecs::Collider
+  keen::ecs::ColliderResourceComponent
+  keen::ecs::CollisionFeedbackMaterialComponent
+  keen::ecs::CombatFlags
+  keen::ecs::CombatTargetActor
+  keen::ecs::ControlCombatTarget
+  keen::ecs::CurrentTransform
+  keen::ecs::DamageMod
+  keen::ecs::DamageSusceptibility
+  keen::ecs::Debug
+  keen::ecs::Dexterity
+  keen::ecs::DismantleOverride
+  keen::ecs::DoNotSave
+  keen::ecs::Enemy01BehaviorState
+  keen::ecs::EnemyArsenalReference
+  keen::ecs::EnemyMarkerCheck
+  keen::ecs::EnemyScaling
+  keen::ecs::EntityTagContainer
+  keen::ecs::ExecutionTarget
+  keen::ecs::ExperienceSource
+  keen::ecs::Faction
+  keen::ecs::Fade
+  keen::ecs::FallDamage
+  keen::ecs::FleeSensor
+  keen::ecs::FriendSensor
+  keen::ecs::GrassEffector
+  keen::ecs::Gravity
+  keen::ecs::HardLockTarget
+  keen::ecs::Health
+  keen::ecs::HealthBar
+  keen::ecs::HermiteInterpolation
+  keen::ecs::HitReactionBehavior
+  keen::ecs::HitStopComponent
+  keen::ecs::HookShotAnchorSubEntity
+  keen::ecs::Impulse
+  keen::ecs::InertialFrame
+  keen::ecs::Intelligence
+  keen::ecs::LastTransform
+  keen::ecs::Level
+  keen::ecs::Locomotion
+  keen::ecs::ModelComponent
+  keen::ecs::ModelRenderHint
+  keen::ecs::ModelResource
+  keen::ecs::Movement
+  keen::ecs::MovementCollider
+  keen::ecs::MovementColliderConfig
+  keen::ecs::MovementSensor
+  keen::ecs::MovementVector
+  keen::ecs::NetworkActor
+  keen::ecs::NetworkAnimationGraphInput
+  keen::ecs::NetworkEnemy
+  keen::ecs::NetworkHealth
+  keen::ecs::NetworkLevel
+  keen::ecs::NetworkLocomotion
+  keen::ecs::NetworkMovementVelocity
+  keen::ecs::NetworkStamina
+  keen::ecs::Oxygen
+  keen::ecs::OxygenMaxMod
+  keen::ecs::OxygenState
+  keen::ecs::PacifiedState
+  keen::ecs::PathFinder
+  keen::ecs::PathGridInteraction
+  keen::ecs::PathWalker
+  keen::ecs::PlayerCombatTarget
+  keen::ecs::RandomLoot
+  keen::ecs::RandomLootContainer
+  keen::ecs::RandomLootSlotCount
+  keen::ecs::RenderTeleportCount
+  keen::ecs::RenderTransform
+  keen::ecs::SelectedTargets
+  keen::ecs::ServerAnimationGraphComponent2
+  keen::ecs::ServerAnimationGraphInput
+  keen::ecs::ServerAnimationGraphSlotComponent
+  keen::ecs::ServerSubmerge
+  keen::ecs::ServerTarget
+  keen::ecs::SlopeConfig
+  keen::ecs::SnowDisplacementComponent
+  keen::ecs::SpawnTime
+  keen::ecs::SphereColliderData
+  keen::ecs::Stamina
+  keen::ecs::StaminaRecharge
+  keen::ecs::SteeringAgent
+  keen::ecs::SteeringBehavior_LookAhead
+  keen::ecs::SteeringBehavior_Separation
+  keen::ecs::SteeringLocomotion
+  keen::ecs::Strength
+  keen::ecs::SubEntities
+  keen::ecs::TargetingTransform
+  keen::ecs::TeleportCount
+  keen::ecs::TemplateResource
+  keen::ecs::UiOffsets
+  keen::ecs::Velocity
+
+KEY FIELDS:
+  [keen::ecs::Faction]
+    { "$type": "keen::ecs::Faction", "$value": { "faction": "Player" } }
+  [keen::ecs::HookShotAnchorSubEntity]
+    { "$type": "keen::ecs::HookShotAnchorSubEntity", "$value": { "anchorEntityTemplate": "ab078982-f5f1-40be-999e-ecaf37d7f112", "attachmentSlot": "Root", "attachmentOffset": { "localOffset": { "x": 0.0, "y": 1.0, "z": 0.0 }, "worldOffset": { "x": 0.0, "y": 0.0, "z": 0.0 }, "orientationOffset": { "x": 0 ...
+  [keen::ecs::Aggro]
+    { "$type": "keen::ecs::Aggro", "$value": { "applyEnemyValue": true, "sightCheckSlot": "Head" } }
+  [keen::ecs::FriendSensor]
+    { "$type": "keen::ecs::FriendSensor", "$value": { "checkRadius": 32.0, "friendsInRange": [ { "id": 0 }, { "id": 0 }, { "id": 0 }, { "id": 0 }, { "id": 0 }, { "id": 0 }, { "id": 0 }, { "id": 0 } ] } }
+  [keen::ecs::CombatTargetActor]
+    { "$type": "keen::ecs::CombatTargetActor", "$value": { "activeAbilityMask": [], "combinedState": [], "lastRangedWeaponUsage": { "value": 0 } } }
+  [keen::ecs::Enemy01BehaviorState]
+    { "$type": "keen::ecs::Enemy01BehaviorState", "$value": { "combatSetup": { "preferedDistance": 4.0, "preferedDistanceVariation": 1.5, "preferedDistanceEngaged": 1.75, "preferedDistanceEngagedVariation": 0.5, "preferedDistanceInWater": 0.0, "preferedDistanceInWaterVariation": 0.0, "maxVerticalDistanc ...
+
+################################################################
+# Dog_01_bright
+# name : Animal_Wildlife_Dog_01_bright_AG2
+# guid : 5d9c1829-69fc-4339-8bcc-5e62e63e9a31
+################################################################
+COMPONENTS (95):
+  keen::ecs::Actor
+  keen::ecs::ActorInput
+  keen::ecs::ActorRotation
+  keen::ecs::Aggro
+  keen::ecs::Animal
+  keen::ecs::AnimalSaved
+  keen::ecs::AnimationGraphComponent2
+  keen::ecs::AnimationGraphResourceComponent2
+  keen::ecs::AnimationGraphSlotComponent
+  keen::ecs::BuffContainer
+  keen::ecs::CapsuleColliderData
+  keen::ecs::CheckPlayerInRange
+  keen::ecs::ClientActor
+  keen::ecs::ClientAnimationGraphInput
+  keen::ecs::ClientAnimationGraphInputLerp
+  keen::ecs::ClientCollider
+  keen::ecs::ClientInteractionOffer
+  keen::ecs::ClientLineOfSightState
+  keen::ecs::ClientLocomotion
+  keen::ecs::ClientNoBuildZone
+  keen::ecs::Collider
+  keen::ecs::ColliderResourceComponent
+  keen::ecs::CollisionFeedbackMaterialComponent
+  keen::ecs::CombatTargetActor
+  keen::ecs::CurrentTransform
+  keen::ecs::DamageSusceptibility
+  keen::ecs::DismantleOverride
+  keen::ecs::EnemyScaling
+  keen::ecs::EntityTagContainer
+  keen::ecs::ExperienceSource
+  keen::ecs::Faction
+  keen::ecs::Fade
+  keen::ecs::FleeSensor
+  keen::ecs::GrassEffector
+  keen::ecs::Gravity
+  keen::ecs::HealthBar
+  keen::ecs::HermiteInterpolation
+  keen::ecs::HitReactionBehavior
+  keen::ecs::Impulse
+  keen::ecs::InertialFrame
+  keen::ecs::InteractionOfferRuntime
+  keen::ecs::LastTransform
+  keen::ecs::Level
+  keen::ecs::Locomotion
+  keen::ecs::ModelComponent
+  keen::ecs::ModelRenderHint
+  keen::ecs::ModelResource
+  keen::ecs::Movement
+  keen::ecs::MovementCollider
+  keen::ecs::MovementColliderConfig
+  keen::ecs::MovementSensor
+  keen::ecs::MovementVector
+  keen::ecs::NetworkActor
+  keen::ecs::NetworkAnimal
+  keen::ecs::NetworkAnimationGraphInput
+  keen::ecs::NetworkHealth
+  keen::ecs::NetworkLevel
+  keen::ecs::NetworkLocomotion
+  keen::ecs::NetworkMovementVelocity
+  keen::ecs::NetworkStamina
+  keen::ecs::NetworkWildlife
+  keen::ecs::NpcActionSequences
+  keen::ecs::NpcCommon
+  keen::ecs::PathFinder
+  keen::ecs::PathGridInteraction
+  keen::ecs::PathWalker
+  keen::ecs::PlayerInRange
+  keen::ecs::RenderTeleportCount
+  keen::ecs::RenderTransform
+  keen::ecs::SelectedTargets
+  keen::ecs::ServerAnimationGraphComponent2
+  keen::ecs::ServerAnimationGraphInput
+  keen::ecs::ServerAnimationGraphSlotComponent
+  keen::ecs::ServerSubmerge
+  keen::ecs::ServerTarget
+  keen::ecs::Shelter
+  keen::ecs::SlopeAlignment
+  keen::ecs::SlopeConfig
+  keen::ecs::SnowDisplacementComponent
+  keen::ecs::SpawnTime
+  keen::ecs::SphereColliderData
+  keen::ecs::Stamina
+  keen::ecs::StaminaRecharge
+  keen::ecs::SteeringAgent
+  keen::ecs::SteeringBehavior_LookAhead
+  keen::ecs::SteeringBehavior_Separation
+  keen::ecs::SteeringLocomotion
+  keen::ecs::SubEntities
+  keen::ecs::TargetingTransform
+  keen::ecs::TeleportCount
+  keen::ecs::TemplateResource
+  keen::ecs::UiOffsets
+  keen::ecs::UsedItem
+  keen::ecs::Velocity
+  keen::ecs::Wildlife
+
+KEY FIELDS:
+  [keen::ecs::Faction]
+    { "$type": "keen::ecs::Faction", "$value": { "faction": "Wildlife" } }
+  [keen::ecs::Animal]
+    { "$type": "keen::ecs::Animal", "$value": { "turnSetup": { "turnLeftSmallSequence": "5c949850-0e25-48ba-91a8-da292973aebe", "turnLeftBigSequence": "ba09e5cf-7293-42fb-b33e-cfb5eda47e1f", "turnRightSmallSequence": "93fa4eae-67a2-4030-bb2d-114a730c2b2f", "turnRightBigSequence": "e1db75a6-8f5a-447b-b09 ...
+  [keen::ecs::AnimalSaved]
+    { "$type": "keen::ecs::AnimalSaved", "$value": { "spawnPosition": { "x": 0.0, "y": 0.0, "z": 0.0 }, "lastFoodConsumptionTime": { "value": 0 }, "lastValidReproduction": { "value": 0 }, "willConsumeFood": false, "wasSleeping": false, "nextReproductionCheck": { "value": 0 }, "needs": [] } }
+  [keen::ecs::NetworkAnimal]
+    { "$type": "keen::ecs::NetworkAnimal", "$value": { "needs": [] } }
+  [keen::ecs::Aggro]
+    { "$type": "keen::ecs::Aggro", "$value": { "applyEnemyValue": false, "sightCheckSlot": "Head" } }
+  [keen::ecs::CombatTargetActor]
+    { "$type": "keen::ecs::CombatTargetActor", "$value": { "activeAbilityMask": [], "combinedState": [], "lastRangedWeaponUsage": { "value": 0 } } }
+  [keen::ecs::InteractionOfferRuntime]
+    { "$type": "keen::ecs::InteractionOfferRuntime", "$value": { "lastAcceptTime": { "value": 0 }, "defaultSequence": { "value": 0 }, "overrideSequence": { "value": 0 }, "defaultVerbId": { "value": 0 }, "overrideVerbLocaId": { "value": 0 }, "lastAcceptData": { "guestId": { "id": 0 }, "usedItem": { "enti ...
+  [keen::ecs::ClientInteractionOffer]
+    { "$type": "keen::ecs::ClientInteractionOffer", "$value": { "verbId": { "value": 0 }, "lastAcceptionId": { "id": 0 }, "isOffered": false } }
+
+################################################################
+# Cat_01_black
+# name : Animal_Wildlife_Cat_01_black_AG2
+# guid : 1ce5ac27-d8b1-4fa8-92db-f568994d080f
+################################################################
+COMPONENTS (95):
+  keen::ecs::Actor
+  keen::ecs::ActorInput
+  keen::ecs::ActorRotation
+  keen::ecs::Aggro
+  keen::ecs::Animal
+  keen::ecs::AnimalSaved
+  keen::ecs::AnimationGraphComponent2
+  keen::ecs::AnimationGraphResourceComponent2
+  keen::ecs::AnimationGraphSlotComponent
+  keen::ecs::BuffContainer
+  keen::ecs::CapsuleColliderData
+  keen::ecs::CheckPlayerInRange
+  keen::ecs::ClientActor
+  keen::ecs::ClientAnimationGraphInput
+  keen::ecs::ClientAnimationGraphInputLerp
+  keen::ecs::ClientCollider
+  keen::ecs::ClientInteractionOffer
+  keen::ecs::ClientLineOfSightState
+  keen::ecs::ClientLocomotion
+  keen::ecs::ClientNoBuildZone
+  keen::ecs::Collider
+  keen::ecs::ColliderResourceComponent
+  keen::ecs::CollisionFeedbackMaterialComponent
+  keen::ecs::CombatTargetActor
+  keen::ecs::CurrentTransform
+  keen::ecs::DamageSusceptibility
+  keen::ecs::DismantleOverride
+  keen::ecs::EnemyScaling
+  keen::ecs::EntityTagContainer
+  keen::ecs::ExperienceSource
+  keen::ecs::Faction
+  keen::ecs::Fade
+  keen::ecs::FleeSensor
+  keen::ecs::GrassEffector
+  keen::ecs::Gravity
+  keen::ecs::HealthBar
+  keen::ecs::HermiteInterpolation
+  keen::ecs::HitReactionBehavior
+  keen::ecs::Impulse
+  keen::ecs::InertialFrame
+  keen::ecs::InteractionOfferRuntime
+  keen::ecs::LastTransform
+  keen::ecs::Level
+  keen::ecs::Locomotion
+  keen::ecs::ModelComponent
+  keen::ecs::ModelRenderHint
+  keen::ecs::ModelResource
+  keen::ecs::Movement
+  keen::ecs::MovementCollider
+  keen::ecs::MovementColliderConfig
+  keen::ecs::MovementSensor
+  keen::ecs::MovementVector
+  keen::ecs::NetworkActor
+  keen::ecs::NetworkAnimal
+  keen::ecs::NetworkAnimationGraphInput
+  keen::ecs::NetworkHealth
+  keen::ecs::NetworkLevel
+  keen::ecs::NetworkLocomotion
+  keen::ecs::NetworkMovementVelocity
+  keen::ecs::NetworkStamina
+  keen::ecs::NetworkWildlife
+  keen::ecs::NpcActionSequences
+  keen::ecs::NpcCommon
+  keen::ecs::PathFinder
+  keen::ecs::PathGridInteraction
+  keen::ecs::PathWalker
+  keen::ecs::PlayerInRange
+  keen::ecs::RenderTeleportCount
+  keen::ecs::RenderTransform
+  keen::ecs::SelectedTargets
+  keen::ecs::ServerAnimationGraphComponent2
+  keen::ecs::ServerAnimationGraphInput
+  keen::ecs::ServerAnimationGraphSlotComponent
+  keen::ecs::ServerSubmerge
+  keen::ecs::ServerTarget
+  keen::ecs::Shelter
+  keen::ecs::SlopeAlignment
+  keen::ecs::SlopeConfig
+  keen::ecs::SnowDisplacementComponent
+  keen::ecs::SpawnTime
+  keen::ecs::SphereColliderData
+  keen::ecs::Stamina
+  keen::ecs::StaminaRecharge
+  keen::ecs::SteeringAgent
+  keen::ecs::SteeringBehavior_LookAhead
+  keen::ecs::SteeringBehavior_Separation
+  keen::ecs::SteeringLocomotion
+  keen::ecs::SubEntities
+  keen::ecs::TargetingTransform
+  keen::ecs::TeleportCount
+  keen::ecs::TemplateResource
+  keen::ecs::UiOffsets
+  keen::ecs::UsedItem
+  keen::ecs::Velocity
+  keen::ecs::Wildlife
+
+KEY FIELDS:
+  [keen::ecs::Faction]
+    { "$type": "keen::ecs::Faction", "$value": { "faction": "Wildlife" } }
+  [keen::ecs::Animal]
+    { "$type": "keen::ecs::Animal", "$value": { "turnSetup": { "turnLeftSmallSequence": "94e6ea1b-6878-409e-90e4-699b1f82072f", "turnLeftBigSequence": "be32b9ec-dcca-4d5f-81a1-e05cbef22f09", "turnRightSmallSequence": "6e0d5ee9-1820-422a-bc20-70e1dc1d7597", "turnRightBigSequence": "3db0045a-a192-4bbe-8c7 ...
+  [keen::ecs::AnimalSaved]
+    { "$type": "keen::ecs::AnimalSaved", "$value": { "spawnPosition": { "x": 0.0, "y": 0.0, "z": 0.0 }, "lastFoodConsumptionTime": { "value": 0 }, "lastValidReproduction": { "value": 0 }, "willConsumeFood": false, "wasSleeping": false, "nextReproductionCheck": { "value": 0 }, "needs": [] } }
+  [keen::ecs::NetworkAnimal]
+    { "$type": "keen::ecs::NetworkAnimal", "$value": { "needs": [] } }
+  [keen::ecs::Aggro]
+    { "$type": "keen::ecs::Aggro", "$value": { "applyEnemyValue": false, "sightCheckSlot": "Head" } }
+  [keen::ecs::CombatTargetActor]
+    { "$type": "keen::ecs::CombatTargetActor", "$value": { "activeAbilityMask": [], "combinedState": [], "lastRangedWeaponUsage": { "value": 0 } } }
+  [keen::ecs::InteractionOfferRuntime]
+    { "$type": "keen::ecs::InteractionOfferRuntime", "$value": { "lastAcceptTime": { "value": 0 }, "defaultSequence": { "value": 0 }, "overrideSequence": { "value": 0 }, "defaultVerbId": { "value": 0 }, "overrideVerbLocaId": { "value": 0 }, "lastAcceptData": { "guestId": { "id": 0 }, "usedItem": { "enti ...
+  [keen::ecs::ClientInteractionOffer]
+    { "$type": "keen::ecs::ClientInteractionOffer", "$value": { "verbId": { "value": 0 }, "lastAcceptionId": { "id": 0 }, "isOffered": false } }
+
+################################################################
+# Base_Tameable
+# name : Base_Animal_Wildlife_Tameable
+# guid : 4cbd184f-3236-481d-8862-f9dd264766d3
+################################################################
+COMPONENTS (90):
+  keen::ecs::Actor
+  keen::ecs::ActorInput
+  keen::ecs::ActorRotation
+  keen::ecs::Aggro
+  keen::ecs::Animal
+  keen::ecs::AnimalSaved
+  keen::ecs::AnimationGraphResourceComponent2
+  keen::ecs::BuffContainer
+  keen::ecs::CheckPlayerInRange
+  keen::ecs::ClientActor
+  keen::ecs::ClientAnimationGraphInput
+  keen::ecs::ClientAnimationGraphInputLerp
+  keen::ecs::ClientCollider
+  keen::ecs::ClientInteractionOffer
+  keen::ecs::ClientLineOfSightState
+  keen::ecs::ClientLocomotion
+  keen::ecs::ClientNoBuildZone
+  keen::ecs::Collider
+  keen::ecs::ColliderResourceComponent
+  keen::ecs::CollisionFeedbackMaterialComponent
+  keen::ecs::CombatTargetActor
+  keen::ecs::CurrentTransform
+  keen::ecs::DamageSusceptibility
+  keen::ecs::DismantleOverride
+  keen::ecs::EnemyScaling
+  keen::ecs::EntityTagContainer
+  keen::ecs::ExperienceSource
+  keen::ecs::Faction
+  keen::ecs::Fade
+  keen::ecs::FleeSensor
+  keen::ecs::GrassEffector
+  keen::ecs::Gravity
+  keen::ecs::HardLockTarget
+  keen::ecs::HealthBar
+  keen::ecs::HermiteInterpolation
+  keen::ecs::HitReactionBehavior
+  keen::ecs::Impulse
+  keen::ecs::InertialFrame
+  keen::ecs::InteractionOfferRuntime
+  keen::ecs::LastTransform
+  keen::ecs::Level
+  keen::ecs::Locomotion
+  keen::ecs::ModelComponent
+  keen::ecs::ModelRenderHint
+  keen::ecs::ModelResource
+  keen::ecs::Movement
+  keen::ecs::MovementCollider
+  keen::ecs::MovementColliderConfig
+  keen::ecs::MovementSensor
+  keen::ecs::MovementVector
+  keen::ecs::NetworkActor
+  keen::ecs::NetworkAnimal
+  keen::ecs::NetworkAnimationGraphInput
+  keen::ecs::NetworkHealth
+  keen::ecs::NetworkLevel
+  keen::ecs::NetworkLocomotion
+  keen::ecs::NetworkMovementVelocity
+  keen::ecs::NetworkStamina
+  keen::ecs::NetworkWildlife
+  keen::ecs::NpcCommon
+  keen::ecs::PathFinder
+  keen::ecs::PathGridInteraction
+  keen::ecs::PathWalker
+  keen::ecs::PlayerCombatTarget
+  keen::ecs::PlayerInRange
+  keen::ecs::RenderTeleportCount
+  keen::ecs::RenderTransform
+  keen::ecs::SelectedTargets
+  keen::ecs::ServerAnimationGraphInput
+  keen::ecs::ServerSubmerge
+  keen::ecs::ServerTarget
+  keen::ecs::Shelter
+  keen::ecs::SlopeAlignment
+  keen::ecs::SlopeConfig
+  keen::ecs::SnowDisplacementComponent
+  keen::ecs::SpawnTime
+  keen::ecs::Stamina
+  keen::ecs::StaminaRecharge
+  keen::ecs::SteeringAgent
+  keen::ecs::SteeringBehavior_LookAhead
+  keen::ecs::SteeringBehavior_Separation
+  keen::ecs::SteeringLocomotion
+  keen::ecs::SubEntities
+  keen::ecs::TargetingTransform
+  keen::ecs::TeleportCount
+  keen::ecs::TemplateResource
+  keen::ecs::UiOffsets
+  keen::ecs::UsedItem
+  keen::ecs::Velocity
+  keen::ecs::Wildlife
+
+KEY FIELDS:
+  [keen::ecs::Faction]
+    { "$type": "keen::ecs::Faction", "$value": { "faction": "Wildlife" } }
+  [keen::ecs::Animal]
+    { "$type": "keen::ecs::Animal", "$value": { "turnSetup": { "turnLeftSmallSequence": null, "turnLeftBigSequence": null, "turnRightSmallSequence": null, "turnRightBigSequence": null, "minSmallTurnAngle": 20.0, "minBigTurnAngle": 90.0 }, "sitSequence": "a2b93346-120c-4ba2-8d81-1ccab09fd931", "sleepSequ ...
+  [keen::ecs::AnimalSaved]
+    { "$type": "keen::ecs::AnimalSaved", "$value": { "spawnPosition": { "x": 0.0, "y": 0.0, "z": 0.0 }, "lastFoodConsumptionTime": { "value": 0 }, "lastValidReproduction": { "value": 0 }, "willConsumeFood": false, "wasSleeping": false, "nextReproductionCheck": { "value": 0 }, "needs": [] } }
+  [keen::ecs::NetworkAnimal]
+    { "$type": "keen::ecs::NetworkAnimal", "$value": { "needs": [] } }
+  [keen::ecs::Aggro]
+    { "$type": "keen::ecs::Aggro", "$value": { "applyEnemyValue": false, "sightCheckSlot": "Head" } }
+  [keen::ecs::CombatTargetActor]
+    { "$type": "keen::ecs::CombatTargetActor", "$value": { "activeAbilityMask": [], "combinedState": [], "lastRangedWeaponUsage": { "value": 0 } } }
+  [keen::ecs::InteractionOfferRuntime]
+    { "$type": "keen::ecs::InteractionOfferRuntime", "$value": { "lastAcceptTime": { "value": 0 }, "defaultSequence": { "value": 0 }, "overrideSequence": { "value": 0 }, "defaultVerbId": { "value": 0 }, "overrideVerbLocaId": { "value": 0 }, "lastAcceptData": { "guestId": { "id": 0 }, "usedItem": { "enti ...
+  [keen::ecs::ClientInteractionOffer]
+    { "$type": "keen::ecs::ClientInteractionOffer", "$value": { "verbId": { "value": 0 }, "lastAcceptionId": { "id": 0 }, "isOffered": false } }
+

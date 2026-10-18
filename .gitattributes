@@ -1,0 +1,51 @@
+# ============================================================================
+#  WolfMount .gitattributes
+#
+#  Force LF in the repository for every text file. Without this, git on Windows
+#  converts to CRLF on checkout and every diff shows the whole file as changed,
+#  which makes reviewing contributions painful and hides real edits.
+# ============================================================================
+
+# Default: normalise text to LF in the repo, check out native.
+* text=auto eol=lf
+
+# Source and docs: always LF.
+*.c      text eol=lf
+*.cpp    text eol=lf
+*.h      text eol=lf
+*.hpp    text eol=lf
+*.md     text eol=lf
+*.py     text eol=lf
+*.js     text eol=lf
+*.json   text eol=lf
+*.glsl   text eol=lf
+*.vert   text eol=lf
+*.frag   text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.txt    text eol=lf
+.gitignore  text eol=lf
+.gitmodules text eol=lf
+.gitattributes text eol=lf
+
+# Windows scripts must keep CRLF or cmd.exe mis-parses them.
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
+# PowerShell is fine either way, but be explicit.
+*.ps1    text eol=crlf
+
+# Binary: never touch.
+*.png    binary
+*.jpg    binary
+*.ico    binary
+*.dll    binary
+*.exe    binary
+*.lib    binary
+*.obj    binary
+*.pdb    binary
+*.zip    binary
+
+# Vendored third-party is checked out by submodule at its own tag; do not
+# apply our line-ending policy to someone else's tree.
+third_party/** -text

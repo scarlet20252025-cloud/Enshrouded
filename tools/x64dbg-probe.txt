@@ -1,0 +1,38 @@
+; WolfMount — x64dbg startup script for locating the ECS world pointer.
+;
+; Strategy
+; --------
+; We cannot attach (no SeDebugPrivilege), so we LAUNCH the game from x64dbg.
+; The breakpoints target addresses we already located statically:
+;
+;   0x140955400  the event writer (SendEvent)
+;   0x1403E93AF  the HitEvent send call site
+;
+; When SendEvent runs we log rcx (event buffer), edx (hash), r8d (size), r9d
+; (entity id). The buffer pointer chain leads to the ECS world.
+;
+; Usage:
+;   x64dbg\release\x64\x64dbg.exe "E:\...\enshrouded.exe" -cf this_file
+;
+; All addresses are image-relative; x64dbg resolves them at load.
+
+log "=== WolfMount ECS probe ==="
+
+; --- 1. log module bases so we can compute ASLR offsets later -------------
+log "mod.main = {mod.main()}"
+
+; --- 2. breakpoint on the event writer ------------------------------------
+; 0x140955400. Log the four argument registers each time it is hit.
+bp 140955400
+SetBreakpointCondition 140955400, "0"
+log "bp set on 140955400 (SendEvent)"
+
+; --- 3. breakpoint on the HitEvent send call site -------------------------
+bp 1403E93AF
+log "bp set on 1403E93AF (HitEvent send)"
+
+; --- 4. also break on the tame handler so we can see it fire --------------
+bp 14047D718
+log "bp set on 14047D718 (TameWildlifeEvent handler)"
+
+log "=== breakpoints armed; run the game ==="

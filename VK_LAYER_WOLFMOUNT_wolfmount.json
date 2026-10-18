@@ -1,0 +1,14 @@
+{
+	"file_format_version": "1.0.0",
+	"layer": {
+		"name": "VK_LAYER_WOLFMOUNT_wolfmount",
+		"type": "GLOBAL",
+		"library_path": ".\\wolfmount_layer.dll",
+		"api_version": "1.3.268",
+		"implementation_version": "1",
+		"description": "WolfMount - Enshrouded wolf mount mod",
+		"disable_environment": {
+			"DISABLE_VK_LAYER_WOLFMOUNT_wolfmount_1": "1"
+		}
+	}
+}

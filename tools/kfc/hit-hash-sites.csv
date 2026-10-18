@@ -1,0 +1,7 @@
+﻿"Event","Hash","FileOffset","Rva","Section"
+"BaseHitEvent","0x0D2F02B9","0x3E04EF","0x3E10EF",".text"
+"BaseHitEvent","0x0D2F02B9","0x3E1E09","0x3E2A09",".text"
+"BaseHitEvent","0x0D2F02B9","0x1510CD8","0x15122D8",".rdata"
+"BaseHitEvent","0x0D2F02B9","0x1A33990","0x1A34F90",".rdata"
+"SendBaseHitEvent","0x4E74667E","0x1836310","0x1837910",".rdata"
+"EntityDiedEvent","0x4E74667E","0x1836310","0x1837910",".rdata"

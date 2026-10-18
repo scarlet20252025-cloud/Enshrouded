@@ -1,0 +1,36 @@
+; ============================================================================
+;  WolfMount — export definitions
+;
+;  The Vulkan loader resolves layer entry points by name via GetProcAddress,
+;  so every function named in the layer manifest must appear here.
+;
+;  DO NOT EXPORT THE INTERCEPTED vk* FUNCTIONS.
+;
+;  We define our own vkCreateInstance / vkCreateDevice / vkQueuePresentKHR /
+;  vkCreateSwapchainKHR etc. with internal linkage in layer.cpp. If this .def
+;  also exported those names, the linker would bind them to the vulkan-1
+;  import library instead, producing thunks that jump back into the loader.
+;  The loader would then re-enter the layer -> unbounded recursion ->
+;  STACK_OVERFLOW during vkCreateInstance. That is exactly the failure this
+;  comment prevents.
+;
+;  The intercepted functions are handed to the loader through
+;  wolfmount_GetInstanceProcAddr / wolfmount_GetDeviceProcAddr, which return
+;  our internal implementations directly.
+; ============================================================================
+
+EXPORTS
+    ; --- required by the loader -------------------------------------------
+    vkNegotiateLoaderLayerInterfaceVersion
+
+    ; --- optional, but the loader looks for these to describe the layer ---
+    vkEnumerateInstanceLayerProperties
+    vkEnumerateInstanceExtensionProperties
+    vkEnumerateDeviceLayerProperties
+    vkEnumerateDeviceExtensionProperties
+
+    ; --- our dispatch entry points ----------------------------------------
+    ; The loader calls these to obtain every other function, including the
+    ; ones we intercept. These must be exported; what they RETURN must not be.
+    wolfmount_GetInstanceProcAddr
+    wolfmount_GetDeviceProcAddr

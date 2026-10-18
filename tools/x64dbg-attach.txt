@@ -1,0 +1,16 @@
+; WolfMount — x64dbg attach script (run via -cf)
+;
+; Uses documented expression functions:
+;   mod.main()      -> main module (debuggee) base
+;   mod.fromname(x) -> module base by name
+;   find "str"      -> search memory for a string (searches whole map)
+
+log "=== WolfMount attach ==="
+log "main module base = {mod.main()}"
+log "enshrouded base   = {mod.fromname("enshrouded.exe")}"
+
+find "adminSpawnCommand"
+find "EntityDiedEvent"
+find "TameWildlifeEvent"
+
+log "=== DONE ==="

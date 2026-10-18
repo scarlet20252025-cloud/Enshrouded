@@ -1,0 +1,65 @@
+# ============================================================================
+#  WolfMount .gitignore
+#
+#  The short version: everything in this repo is source we wrote or vendored
+#  third-party source. Everything derived from the shipped game is ignored,
+#  because it is large (tens of GB) and it is not ours to redistribute.
+# ============================================================================
+
+# ---- game data and anything derived from it --------------------------------
+#
+# tools/kfc/gamecopy is a copy of the game's own asset containers (~49 GB).
+# tools/kfc/unpacked is 91k extracted template JSONs (~4.7 GB).
+# Neither belongs in a git repo. Regenerate with tools/kfc/README (see
+# docs/TECHNIQUE.md for the reflection table extraction).
+tools/kfc/gamecopy/
+tools/kfc/unpacked/
+tools/kfc/work/
+tools/kfc/types/
+
+# Third-party binaries we do not redistribute; get them from their authors.
+tools/kfc/kfc-parser.exe
+tools/x64dbg/
+
+# ---- build output ----------------------------------------------------------
+build/
+*.obj
+*.o
+*.lib
+*.exp
+*.pdb
+*.ilk
+
+# The layer and its manifest are generated into the game directory, but a
+# stale copy can end up here during testing.
+wolfmount_layer.dll
+wolfmount_layer.dll.log
+wolfmount_layer.dll.settings.json
+
+# ---- local run artifacts ---------------------------------------------------
+# Screenshots, log dumps and probe output created while testing.
+*.png
+*.log
+_*.txt
+!MODLOG.md
+!NOTICE.md
+
+# ---- python ----------------------------------------------------------------
+__pycache__/
+*.pyc
+*.pyo
+
+# ---- editors / OS ----------------------------------------------------------
+.vs/
+.vscode/
+*.swp
+*~
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- secrets ---------------------------------------------------------------
+# Never commit credentials. Nothing in this project needs one.
+*.pem
+*.key
+.env

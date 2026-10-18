@@ -1,0 +1,572 @@
+﻿// ============================================================================
+//  WolfMount 鈥?mod logic
+//
+//  M1 scope: settings, key handling, ImGui menu.
+//  M2+ adds: AdminSpawnCommand summon, torch-kill taming, faction rewrite,
+//            ImpactHierarchy mounting.
+// ============================================================================
+
+#include "mod.h"
+#include "console_ui.h"
+#include "ecs.h"
+#include "follow.h"
+#include "gamehooks.h"
+#include "logging.h"
+#include "mount.h"
+#include "tame.h"
+
+#include "imgui.h"
+
+#include <atomic>
+#include <cstdio>
+#include <fstream>
+#include <string>
+
+namespace wolfmount::mod {
+
+// ---------------------------------------------------------------------------
+//  Settings + persistence
+// ---------------------------------------------------------------------------
+static Settings g_settings;
+static bool g_menuOpen = false;
+static bool g_consoleOpen = false;
+
+// Summon bookkeeping. A summon is only issued once the ECS probe has confirmed
+// the command surface exists, so the menu can distinguish "not ready" from
+// "summoned".
+static int         g_summonCount = 0;
+static const char* g_lastAction = "idle";
+
+Settings& GetSettings() { return g_settings; }
+
+static std::string SettingsPath() {
+    char path[MAX_PATH] = {0};
+    HMODULE h = nullptr;
+    GetModuleHandleExA(
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        (LPCSTR)&SettingsPath, &h);
+    GetModuleFileNameA(h, path, MAX_PATH);
+    return std::string(path) + ".settings.json";
+}
+
+void LoadSettings() {
+    std::ifstream f(SettingsPath());
+    if (!f) return;
+
+    std::string line;
+    while (std::getline(f, line)) {
+        auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string k = line.substr(0, eq);
+        std::string v = line.substr(eq + 1);
+
+        if      (k == "summonKey")  g_settings.summonKey = std::stoi(v);
+        else if (k == "menuKey")    g_settings.menuKey   = std::stoi(v);
+        else if (k == "consoleKey") g_settings.consoleKey = std::stoi(v);
+        else if (k == "mountEnabled")       g_settings.mountEnabled = (v == "1");
+        else if (k == "combatFollowEnabled")g_settings.combatFollowEnabled = (v == "1");
+        else if (k == "tameOnTorchKill")    g_settings.tameOnTorchKill = (v == "1");
+        else if (k == "maxWolves")          g_settings.maxWolves = std::stoi(v);
+        else if (k == "showDebug")          g_settings.showDebug = (v == "1");
+    }
+}
+
+void SaveSettings() {
+    std::ofstream f(SettingsPath(), std::ios::trunc);
+    if (!f) return;
+
+    f << "summonKey="   << g_settings.summonKey  << "\n";
+    f << "menuKey="     << g_settings.menuKey    << "\n";
+    f << "consoleKey="  << g_settings.consoleKey << "\n";
+    f << "mountEnabled=" << (g_settings.mountEnabled ? 1 : 0) << "\n";
+    f << "combatFollowEnabled=" << (g_settings.combatFollowEnabled ? 1 : 0) << "\n";
+    f << "tameOnTorchKill=" << (g_settings.tameOnTorchKill ? 1 : 0) << "\n";
+    f << "maxWolves="   << g_settings.maxWolves  << "\n";
+    f << "showDebug="   << (g_settings.showDebug ? 1 : 0) << "\n";
+}
+
+// ---------------------------------------------------------------------------
+//  Key name helper 鈥?renders a VK code as something readable in the menu.
+// ---------------------------------------------------------------------------
+static const char* KeyName(int vk) {
+    static char buf[32];
+    if (vk >= 'A' && vk <= 'Z') { buf[0] = (char)vk; buf[1] = 0; return buf; }
+    if (vk >= '0' && vk <= '9') { buf[0] = (char)vk; buf[1] = 0; return buf; }
+    switch (vk) {
+        case VK_F1:  return "F1";
+        case VK_F2:  return "F2";
+        case VK_F3:  return "F3";
+        case VK_F4:  return "F4";
+        case VK_F5:  return "F5";
+        case VK_F6:  return "F6";
+        case VK_F7:  return "F7";
+        case VK_F8:  return "F8";
+        case VK_F9:  return "F9";
+        case VK_F10: return "F10";
+        case VK_F11: return "F11";
+        case VK_F12: return "F12";
+        case VK_SPACE:  return "Space";
+        case VK_TAB:    return "Tab";
+        case VK_SHIFT:  return "Shift";
+        case VK_CONTROL:return "Ctrl";
+        case VK_MENU:   return "Alt";
+        case 'E':       return "E";
+        default:        snprintf(buf, sizeof(buf), "VK_%02X", vk); return buf;
+    }
+}
+
+// ---------------------------------------------------------------------------
+//  Lifecycle
+// ---------------------------------------------------------------------------
+void OnOverlayReady() {
+    LoadSettings();
+    g_menuOpen = false;
+    g_consoleOpen = false;
+
+    // Probe the ECS command surface now that we are inside the game process.
+    const auto& probe = wolfmount::ecs::Probe();
+    g_lastAction = probe.status;
+
+    // Install the game hooks (M3/M6). This verifies the death-site bytes and
+    // reports success/failure so the menu can show the real runtime state.
+    int hooked = wolfmount::gamehooks::Install();
+    if (hooked > 0) {
+        WM_MOD_LOG("[wolfmount] game hooks installed: %d", hooked);
+        g_lastAction = "game hooks installed";
+    } else {
+        WM_MOD_LOG("[wolfmount] game hooks NOT installed (game updated?)");
+        g_lastAction = "game hooks unavailable";
+    }
+}
+
+// ---------------------------------------------------------------------------
+//  Input 鈥?polled
+//
+//  WHY POLLING IS REQUIRED
+//
+//  The game does not deliver WM_KEYDOWN to its window procedure: a message
+//  trace covering a full session showed mouse messages arriving but not a
+//  single key message, because the game reads the keyboard through raw input
+//  and never dispatches key messages to the window.
+//
+//  That means a hotkey implemented only in the WndProc never fires during
+//  normal play. GetAsyncKeyState reads the hardware state regardless of who
+//  consumes the messages, so polling once per frame is reliable.
+//
+//  Edge detection: we act on the transition from "up" to "down" only, so
+//  holding a key does not repeat the action.
+// ---------------------------------------------------------------------------
+static bool KeyWentDown(int vk, bool& wasDown) {
+    // The 0x8000 bit is "currently down"; the 0x0001 bit is "pressed since the
+    // last call", which is not reliable when the game also polls.
+    bool down = (GetAsyncKeyState(vk) & 0x8000) != 0;
+    bool edge = down && !wasDown;
+    wasDown = down;
+    return edge;
+}
+
+void PollInput() {
+    static bool menuWasDown   = false;
+    static bool summonWasDown = false;
+    static int  diagFrames    = 0;
+
+    // Low-frequency diagnostic: confirms the poll runs at all and shows what
+    // GetAsyncKeyState actually reports for the bound keys. Cheap (a few times
+    // per session) and decisive when a hotkey appears dead.
+    if (diagFrames < 3 && (diagFrames++ % 1200) == 0) {
+        WM_MOD_LOG("[wolfmount] poll diag: menuKey=%d(0x%X) state=0x%04X  "
+                   "summonKey=%d(0x%X) state=0x%04X",
+                   g_settings.menuKey, g_settings.menuKey,
+                   (unsigned)(GetAsyncKeyState(g_settings.menuKey) & 0xFFFF),
+                   g_settings.summonKey, g_settings.summonKey,
+                   (unsigned)(GetAsyncKeyState(g_settings.summonKey) & 0xFFFF));
+    }
+
+    // The menu key must work whether the panel is open or closed.
+    if (KeyWentDown(g_settings.menuKey, menuWasDown)) {
+        g_menuOpen = !g_menuOpen;
+        g_lastAction = g_menuOpen ? "menu opened" : "menu closed";
+        WM_MOD_LOG("[wolfmount] menu %s (polled)", g_menuOpen ? "opened" : "closed");
+    }
+
+    // Console toggle 鈥?a second, independent window so it can stay open while
+    // playing. Suppressed while the console text field has focus, so typing a
+    // key that happens to be the toggle does not close it mid-word.
+    static bool consoleWasDown = false;
+    if (!wolfmount::console::ui::WantsKeyboard() &&
+        KeyWentDown(g_settings.consoleKey, consoleWasDown)) {
+        g_consoleOpen = !g_consoleOpen;
+        g_lastAction = g_consoleOpen ? "console opened" : "console closed";
+        WM_MOD_LOG("[wolfmount] console %s (polled)",
+                   g_consoleOpen ? "opened" : "closed");
+    }
+
+    // The summon key is only meaningful while no text field is capturing input,
+    // so it does not fight with typing in the menu or console.
+    const bool typing = g_menuOpen || wolfmount::console::ui::WantsKeyboard();
+    if (!typing && KeyWentDown(g_settings.summonKey, summonWasDown)) {
+        RequestSummon();
+    } else if (typing) {
+        // Keep the edge state fresh so closing the menu does not immediately
+        // fire a summon from a key held during the menu.
+        (void)KeyWentDown(g_settings.summonKey, summonWasDown);
+    }
+}
+
+// ---------------------------------------------------------------------------
+//  Input 鈥?window messages
+//
+//  The layer forwards every window message here AFTER giving it to ImGui, so
+//  the UI already has up-to-date mouse and keyboard state. This function only
+//  decides whether the GAME should also see it.
+//
+//  Returning true means "the mod consumed this message".
+//
+//  While the menu is open we consume all mouse and keyboard input, otherwise
+//  clicking a checkbox would also swing the player's camera or attack. When
+//  the menu is closed we consume nothing except the menu key itself.
+//
+//  Note: the menu toggle is NOT handled here 鈥?see PollInput. Key messages do
+//  not reach this window in practice.
+// ---------------------------------------------------------------------------
+bool OnWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    (void)hWnd;
+
+    switch (msg) {
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN: {
+            // Key messages are rare here (see PollInput), but if the game ever
+            // does deliver one while the menu is open, keep it from the game.
+            if (g_menuOpen) return true;
+            return false;
+        }
+
+        case WM_KEYUP:
+        case WM_SYSKEYUP:
+        case WM_CHAR:
+            // Swallow key releases only while the menu owns the keyboard, so a
+            // key held when the panel opened does not stick in the game.
+            return g_menuOpen;
+
+        // ---- mouse ---------------------------------------------------------
+        case WM_MOUSEMOVE:
+        case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_LBUTTONDBLCLK:
+        case WM_RBUTTONDOWN: case WM_RBUTTONUP: case WM_RBUTTONDBLCLK:
+        case WM_MBUTTONDOWN: case WM_MBUTTONUP: case WM_MBUTTONDBLCLK:
+        case WM_XBUTTONDOWN: case WM_XBUTTONUP:
+        case WM_MOUSEWHEEL:  case WM_MOUSEHWHEEL:
+            // ImGui has already seen these. Consume them only when the panel
+            // is open, so dragging a slider does not also move the camera.
+            return g_menuOpen;
+
+        default:
+            break;
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+//  Summon (M2)
+//
+//  M2 proves the command surface. The actual entity creation needs the ECS
+//  world pointer, which is only obtainable by dynamic analysis (a live
+//  breakpoint on the command dispatcher). Until that is done the honest
+//  behaviour is: gate on the probe, report state, and do not fabricate a call.
+// ---------------------------------------------------------------------------
+void RequestSummon() {
+    const auto& probe = wolfmount::ecs::Probe();
+
+    if (!probe.hasAdminSpawnCommand) {
+        g_lastAction = "no spawn command in this build";
+        return;
+    }
+
+    // There is still no verified dispatcher that accepts an AdminSpawnCommand
+    // from outside the game's own input path, so we cannot conjure a wolf out
+    // of thin air yet. What we CAN do 鈥?and what the summon key does as a
+    // fallback 鈥?is convert the last wild wolf we saw into an ally, using the
+    // game's own SetIsTame writer. That is the first half of "鍙敜" and it
+    // exercises the whole tame path end to end.
+    if (!wolfmount::gamehooks::HasWorldContext()) {
+        g_lastAction = "绛夊緟涓栫晫涓婁笅鏂?杩涗笘鐣屽悗鑷姩鑾峰彇)";
+        return;
+    }
+
+    const uint32_t wolf = wolfmount::gamehooks::LastWildBeast();
+    if (!wolf) {
+        g_lastAction = "杩樻病閬囧埌杩囬噹鐙?鈥?鍏堢敤鐏妸鎵撲竴涓嬬嫾";
+        return;
+    }
+
+    g_summonCount++;
+    if (wolfmount::gamehooks::TameEntity(wolf, true)) {
+        static char buf[96];
+        snprintf(buf, sizeof(buf), "宸插彂鍑洪┋鍖栧啓鍏? entity %u", wolf);
+        g_lastAction = buf;
+    } else {
+        g_lastAction = "椹寲鍐欏叆鎺掗槦澶辫触";
+    }
+}
+
+const char* RuntimeStatus() {
+    const auto& probe = wolfmount::ecs::Probe();
+    static char buf[128];
+    snprintf(buf, sizeof(buf), "%s (%d/7 ECS features)",
+             probe.status, probe.featuresFound);
+    return buf;
+}
+
+bool IsMenuOpen() { return g_menuOpen; }
+
+// ---------------------------------------------------------------------------
+//  Menu
+// ---------------------------------------------------------------------------
+void DrawMenu() {
+    if (!g_menuOpen) return;
+
+    ImGui::SetNextWindowSize(ImVec2(460, 0), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("WolfMount 鈥?鐙煎潗楠?, &g_menuOpen)) {
+        ImGui::End();
+        return;
+    }
+
+    Settings& s = g_settings;
+
+    ImGui::TextColored(ImVec4(0.75f, 0.55f, 0.25f, 1.0f),
+                       "Enshrouded 1.0  Wolf Mount");
+    ImGui::Separator();
+
+    // ---- key bindings ------------------------------------------------------
+    if (ImGui::CollapsingHeader("閿綅缁戝畾", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("鍙敜鍧愰獞閿?");
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1, 1, 0.4f, 1), "%s", KeyName(s.summonKey));
+        ImGui::SameLine();
+        if (ImGui::SmallButton("rebind##summon")) {
+            // Simple cycle-based rebinding: click repeatedly to step through
+            // common keys. A click-to-listen variant replaces this later.
+            static const int cycle[] = { 'Y', 'G', 'H', 'J', 'K', 'L', 'T', 'R', 'B', 'V' };
+            static int idx = 0;
+            idx = (idx + 1) % (int)(sizeof(cycle) / sizeof(cycle[0]));
+            s.summonKey = cycle[idx];
+            SaveSettings();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("鐐瑰嚮寰幆鍒囨崲鍊欓€夐敭浣?);
+
+        ImGui::Text("鑿滃崟寮€鍏抽敭:");
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1, 1, 0.4f, 1), "%s", KeyName(s.menuKey));
+    }
+
+    // ---- features ---------------------------------------------------------
+    if (ImGui::CollapsingHeader("鍔熻兘", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("鍚敤鍧愰獞", &s.mountEnabled);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("鍏抽棴鍚庡畬鍏ㄥ仠鐢ㄩ獞涔樼浉鍏抽€昏緫");
+
+        ImGui::Checkbox("鐏妸鍑绘潃椹寲", &s.tameOnTorchKill);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("鐢ㄧ伀鎶?鐏劙浼ゅ)鎵撲腑閲庣嫾鏃惰嚜鍔ㄥ啓鍏?IsTame 椹寲");
+        // Keep the hook rule in sync with the checkbox every frame.
+        wolfmount::gamehooks::SetTorchTameEnabled(s.tameOnTorchKill);
+
+        ImGui::Checkbox("鐙煎苟鑲╀綔鎴?, &s.combatFollowEnabled);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("灏嗙嫾鏀逛负鍙嬪啗闃佃惀,澶嶇敤鍏舵垬鏂?AI");
+
+        ImGui::SliderInt("鏈€澶ч┋鏈嶆暟閲?, &s.maxWolves, 1, 8);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("娓告垙鍐呮渶澶氬瓨鍦ㄥ灏戝ご宸查┋鏈嶇殑鐙?);
+    }
+
+    // ---- runtime capability (M2) ------------------------------------------
+    if (ImGui::CollapsingHeader("杩愯鏃惰兘鍔?, ImGuiTreeNodeFlags_DefaultOpen)) {
+        const auto& probe = wolfmount::ecs::Probe();
+
+        auto Row = [](const char* label, bool ok, const char* hint) {
+            ImGui::TextColored(ok ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f)
+                                  : ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
+                               ok ? "[x]" : "[ ]");
+            ImGui::SameLine();
+            ImGui::Text("%s", label);
+            if (ImGui::IsItemHovered() && hint) ImGui::SetTooltip("%s", hint);
+        };
+
+        Row("adminSpawnCommand 鈥?鐢熸垚瀹炰綋", probe.hasAdminSpawnCommand,
+            "keen::ecs::AdminSpawnCommand,鍚?followPlayer 瀛楁");
+        Row("adminDebugEnemyAction 鈥?椹寲鍛戒护", probe.hasAdminEnemyAction,
+            "鎼哄甫 EnemyDebugAction::SetTamed / ResetTamed");
+        Row("IsTame 璇箟 鈥?椹寲鍚庡仠鐢ㄩ噹鍏?AI", probe.hasIsTameSemantics,
+            "鏂囨。涓?'If set to false the Wildlife behavior won't run if the Wildlife is tamed'");
+        Row("TameWildlifeEvent 鈥?椹寲浜嬩欢", probe.hasTameWildlifeEvent,
+            "keen::actor::TameWildlifeEvent");
+        Row("HookShotAnchorSubEntity 鈥?鐙艰儗鎸傜偣", probe.hasHookAnchor,
+            "鐙艰韩涓婂凡鏈?Root 妲?localOffset(0,1,0)");
+        Row("addImpactHierarchy 鈥?鐖跺瓙瀹炰綋灞傜骇", probe.hasImpactHierarchy,
+            "鎸傝浇鐜╁鍒扮嫾鐨勬満鍒?);
+        Row("Enemy01BehaviorState 鈥?鎴樻枟鍚屼即 AI", probe.hasCompanionAI,
+            "Base_Companion 鍚屾,闃佃惀 Player");
+
+        ImGui::Separator();
+        ImGui::Text("鐘舵€? %s", RuntimeStatus());
+        ImGui::Text("鍙敜灏濊瘯: %d 娆?, g_summonCount);
+        ImGui::TextDisabled("涓婃鎿嶄綔: %s", g_lastAction);
+
+        // Game hook status: what is actually intercepted right now.
+        ImGui::Separator();
+        bool hooked = wolfmount::gamehooks::IsActive();
+        ImGui::TextColored(hooked ? ImVec4(0.4f,1.0f,0.4f,1.0f)
+                                  : ImVec4(1.0f,0.7f,0.3f,1.0f),
+                           hooked ? "娓告垙閽╁瓙: 宸插氨缁? : "娓告垙閽╁瓙: 鏈縺娲?);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("SendEvent 鍏ュ彛(rva 0x955400)璇诲彇 HitEvent;\n"
+                              "Enqueue(rva 0x952400)鍐欑粍浠?\n"
+                              "GetCtx(rva 0x9B0860)鑾峰彇涓栫晫涓婁笅鏂?);
+
+        bool haveCtx = wolfmount::gamehooks::HasWorldContext();
+        ImGui::TextColored(haveCtx ? ImVec4(0.4f,1.0f,0.4f,1.0f)
+                                   : ImVec4(1.0f,0.7f,0.3f,1.0f),
+                           haveCtx ? "涓栫晫涓婁笅鏂? 宸茶幏鍙?
+                                   : "涓栫晫涓婁笅鏂? 绛夊緟涓?闇€杩涗笘鐣?");
+        ImGui::Text("GetCtx 璋冪敤: %d", wolfmount::gamehooks::CtxQueryCount());
+        ImGui::Text("Enqueue 璋冪敤: %d", wolfmount::gamehooks::EnqueueCount());
+        ImGui::Text("椹寲鍐欏叆: %d", wolfmount::gamehooks::TameIssuedCount());
+        ImGui::Text("鐏妸瑙勫垯瑙﹀彂: %d", wolfmount::gamehooks::TorchTameCount());
+        ImGui::Text("闃佃惀鏀瑰啓: %d", wolfmount::gamehooks::FactionIssuedCount());
+        if (wolfmount::gamehooks::HasEntityStore()) {
+            ImGui::TextColored(ImVec4(0.4f,1.0f,0.4f,1.0f),
+                               "瀹炰綋琛? 鍙闂?);
+        } else {
+            ImGui::TextDisabled("瀹炰綋琛? 鏈幏鍙?);
+        }
+
+        const uint32_t wolf = wolfmount::gamehooks::LastWildBeast();
+        ImGui::Text("鏈€杩戣瘑鍒殑閲庣嫾: ");
+        ImGui::SameLine();
+        if (wolf) {
+            ImGui::TextColored(ImVec4(0.4f,1.0f,0.4f,1.0f), "entity %u", wolf);
+        } else {
+            ImGui::TextDisabled("灏氭湭閬囧埌(闇€鍏堢敤鐏妸鎵撶嫾)");
+        }
+    }
+
+    // ---- taming state (M3) ------------------------------------------------
+    if (ImGui::CollapsingHeader("椹寲鐘舵€?, ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto ts = wolfmount::tame::Snapshot();
+
+        ImGui::TextDisabled("%s", wolfmount::tame::RulesText());
+
+        const char* owned = (ts.tamedCount > 0) ? "鏄?鍞竴涓€澶?" : "鍚?;
+        ImGui::Text("宸查┋鏈? ");
+        ImGui::SameLine();
+        ImGui::TextColored(ts.tamedCount > 0 ? ImVec4(0.4f,1.0f,0.4f,1.0f)
+                                             : ImVec4(0.7f,0.7f,0.7f,1.0f),
+                           "%s", owned);
+
+        ImGui::Text("鐏妸椹寲娆℃暟: %d", ts.convertedKills);
+        ImGui::Text("琚拷鐣ョ殑鐏妸鍑绘潃: %d", ts.ignoredKills);
+        ImGui::Text("闈炵伀鎶婂嚮鏉€鐙? %d", ts.wolfKillsWithoutTorch);
+
+        if (ts.tamedGuid) {
+            ImGui::TextDisabled("椹湇鐨勬ā鏉? %s", ts.tamedGuid);
+        }
+
+        if (ImGui::SmallButton("閲嶇疆椹寲鐘舵€?)) {
+            wolfmount::tame::Reset();
+        }
+    }
+
+    // ---- combat follow plan (M4) ------------------------------------------
+    if (ImGui::CollapsingHeader("鎴樻枟璺熼殢鏂规", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto plan = wolfmount::follow::BuildPlan();
+
+        ImGui::TextDisabled("%s", wolfmount::follow::Describe(plan));
+
+        ImGui::Separator();
+        ImGui::Text("鐙艰嚜韬凡鍏峰(鏃犻渶鏂板 AI):");
+        ImGui::BulletText("CombatTargetActor / ControlCombatTarget / SelectedTargets");
+        ImGui::BulletText("Enemy01BehaviorState + EnemyArsenalReference");
+        ImGui::BulletText("PathFinder / PathWalker / SteeringLocomotion");
+        ImGui::BulletText("Aggro.applyEnemyValue = true(鐙煎ぉ鐢熸湁浠囨仺)");
+
+        ImGui::Separator();
+        ImGui::Text("闇€瑕佷慨鏀圭殑瀛楁:");
+        ImGui::BulletText("Faction: %s -> %s", plan.faction.from, plan.faction.to);
+        ImGui::BulletText("娣诲姞 IsTame(鎶戝埗鏁屽閲庡吔琛屼负)");
+        ImGui::BulletText("娣诲姞 Animal / AnimalSaved / NetworkAnimal");
+
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "蹇呴』閬垮厤:");
+        ImGui::BulletText("LifeTime(浼氳鐙艰繃鏈熸秷澶?");
+        ImGui::BulletText("Boss / BossHealthBar");
+        ImGui::BulletText("涓嶅彲鍏抽棴 Aggro(鍚﹀垯閫€鍖栦负琚姩瀹犵墿)");
+
+        ImGui::TextDisabled("鏂规鏍￠獙: %s", plan.valid ? "閫氳繃" : "鏈€氳繃");
+    }
+
+    // ---- mount state (M5) -------------------------------------------------
+    if (ImGui::CollapsingHeader("楠戜箻鐘舵€?, ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto ms = wolfmount::mount::Snapshot();
+        auto slot = wolfmount::mount::GetAttachSlot();
+        auto cam = wolfmount::mount::GetCameraPlan();
+
+        ImGui::TextDisabled("%s", wolfmount::mount::StepText());
+
+        const char* st = ms.mounted ? "楠戜箻涓? : "鏈獞涔?;
+        ImGui::Text("鐘舵€? ");
+        ImGui::SameLine();
+        ImGui::TextColored(ms.mounted ? ImVec4(0.4f,1.0f,0.4f,1.0f)
+                                      : ImVec4(0.7f,0.7f,0.7f,1.0f),
+                           "%s", st);
+
+        ImGui::Text("鎸傝浇妲? %s  鍋忕Щ (%.1f, %.1f, %.1f)",
+                    slot.slot, slot.localX, slot.localY, slot.localZ);
+        ImGui::Text("楠戜箻鐩告満: %s", cam.mountCamera);
+        ImGui::Text("鍧愬Э: %s", cam.poseCamera);
+        ImGui::Text("鎺ョ浜嬩欢: %s / %s", cam.enterEvent, cam.exitEvent);
+        ImGui::Text("涓婄嫾/涓嬬嫾: %d / %d 娆?, ms.enters, ms.exits);
+        ImGui::TextDisabled("涓婃杞崲: %s", ms.lastTransition);
+
+        // Simulate the state machine so the flow can be exercised in-game.
+        if (ImGui::SmallButton(ms.mounted ? "涓嬬嫾" : "涓婄嫾")) {
+            if (ms.mounted) wolfmount::mount::ExitMount();
+            else           wolfmount::mount::TryEnterMount();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("鏈湴鐘舵€佹満婕旂ず;瀹為檯鎸傝浇闇€ M6 鍒嗗彂鍣?);
+    }
+
+    // ---- progress ---------------------------------------------------------
+    if (ImGui::CollapsingHeader("杩涘害", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::BulletText("M1 Vulkan Layer: 瀹屾垚");
+        ImGui::BulletText("M2 鐢熸垚鍛戒护瀹氫綅: 瀹屾垚(7/7 ECS 绛惧悕)");
+        ImGui::BulletText("M3 鐏妸椹寲瑙勫垯: 瀹屾垚(43 椤规祴璇?");
+        ImGui::BulletText("M4 鎴樻枟璺熼殢鏂规: 瀹屾垚(17 椤规祴璇?");
+        ImGui::BulletText("M5 楠戜箻妗嗘灦: 瀹屾垚(31 椤规祴璇?");
+        ImGui::BulletText("M6 杈撳叆閲嶅畾鍚? 寰呭紑濮?闇€ ECS 鍒嗗彂鍣?");
+    }
+
+    if (s.showDebug) {
+        ImGui::Separator();
+        ImGui::Text("debug: %.1f FPS", ImGui::GetIO().Framerate);
+        const auto& probe = wolfmount::ecs::Probe();
+        ImGui::Text("module: %p", (void*)probe.module);
+        ImGui::Text("adminSpawnCommandStr: %p [%s]",
+                    (void*)probe.adminSpawnCommandStr, probe.adminSpawnCommandSection);
+    }
+
+    ImGui::Separator();
+    ImGui::TextDisabled("鎸?%s 寮€鍏虫鑿滃崟", KeyName(s.menuKey));
+
+    ImGui::End();
+
+    // The console is a separate window so it can stay open while playing.
+    wolfmount::console::ui::Draw(&g_consoleOpen);
+}
+
+// ---------------------------------------------------------------------------
+//  M1 stub removed 鈥?summon is implemented above.
+// ---------------------------------------------------------------------------
+} // namespace wolfmount::mod
