@@ -53,6 +53,9 @@ std::atomic<uint32_t>  g_routeAPlayer{0};
 std::atomic<int>       g_lastScanSize{0};
 std::atomic<int>       g_discoverAttempts{0};
 std::atomic<int>       g_dumpCount{0};
+// The most recent entity ever enrolled as a follower. Remembered separately
+// from the live set so the mount button still works right after a death.
+std::atomic<uint32_t>  g_lastFollower{0};
 
 uintptr_t GameBase() {
     static HMODULE s_mod = nullptr;
@@ -1335,6 +1338,10 @@ bool FollowAdd(uint32_t entityId) {
         WM_MOD_LOG("[wolfmount/follow] entity %u now follows (%d in set)",
                    entityId, followset::Count());
     }
+    // Remembered even when the set is full, and kept after a removal: the mount
+    // button has to offer *something* to ride, and a wolf that just died is
+    // still the one the player was standing next to.
+    if (entityId) g_lastFollower.store(entityId, std::memory_order_relaxed);
     return ok;
 }
 
@@ -1547,6 +1554,175 @@ void DumpPlayerPosition() {
     if (!players) {
         WM_MOD_LOG("[wolfmount/pos] no entity currently reads Faction == Player");
     }
+}
+
+// ---------------------------------------------------------------------------
+//  Riding
+//
+//  The engine has no mount to enter (see the comment block in entityops.h), so
+//  riding is reduced to the part that is both visible and safe: while mounted,
+//  the player's transform is written from the wolf's transform plus the anchor
+//  offset. The wolf keeps its own movement and combat AI; the player inherits
+//  it, which is exactly the physical relationship "riding" describes.
+//
+//  Deliberately NOT attempted here:
+//    - the camera stays the player's own (there is no reachable state machine
+//      to move it, see mount.cpp's plan);
+//    - the seated pose is not applied;
+//    - no speed or control change is made to the wolf.
+//  Anything beyond copying the transform would need the program dispatcher,
+//  and calling a handler directly has already been shown to fault (the
+//  transformer crash at RVA 0x9B8013).
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::atomic<uint32_t> g_mountedId{0};
+std::atomic<int>      g_mountTicks{0};
+std::atomic<int>      g_mountWrites{0};
+
+// The anchor: one metre straight up from the wolf's origin, matching the
+// "Root" attachment slot the wolf itself ships for the hookshot. Reusing the
+// shipped anchor rather than inventing an offset means the rider stands where
+// the game already expects a body to be able to sit.
+constexpr double kMountHeightMetres = 1.0;
+
+} // anonymous namespace
+
+uint32_t MountedEntity() {
+    return g_mountedId.load(std::memory_order_relaxed);
+}
+
+bool IsMounted() {
+    return g_mountedId.load(std::memory_order_relaxed) != 0;
+}
+
+uint32_t FollowAt(int index) {
+    return followset::At(index);
+}
+
+uint32_t LastFollower() {
+    return g_lastFollower.load(std::memory_order_relaxed);
+}
+
+bool MountOnto(uint32_t entityId) {
+    if (entityId == 0) {
+        WM_MOD_LOG("[wolfmount/mount] refused: entity id 0");
+        return false;
+    }
+    if (IsMounted()) {
+        WM_MOD_LOG("[wolfmount/mount] already mounted on %u",
+                   g_mountedId.load(std::memory_order_relaxed));
+        return false;
+    }
+    if (!HasManager()) {
+        WM_MOD_LOG("[wolfmount/mount] refused: no entity manager (no world?)");
+        return false;
+    }
+
+    mgr::EntityRef ref;
+    if (!Lookup(entityId, &ref)) {
+        WM_MOD_LOG("[wolfmount/mount] refused: entity %u is not live", entityId);
+        return false;
+    }
+
+    // A mount has to be something we can actually follow: no transform slot
+    // means we cannot keep the player on it, and the rider would be left
+    // standing wherever they were while the wolf walks away.
+    uint16_t stride = 0;
+    const int slot = FindTransformSlotEx(entityId, &stride);
+    if (slot < 0) {
+        WM_MOD_LOG("[wolfmount/mount] refused: entity %u has no readable "
+                   "transform slot", entityId);
+        return false;
+    }
+
+    const uint32_t player = PlayerEntityId();
+    if (player == 0) {
+        WM_MOD_LOG("[wolfmount/mount] refused: player entity not identified");
+        return false;
+    }
+
+    uint16_t pstride = 0;
+    if (FindTransformSlotEx(player, &pstride) < 0) {
+        WM_MOD_LOG("[wolfmount/mount] refused: player %u has no readable "
+                   "transform slot", player);
+        return false;
+    }
+
+    g_mountedId.store(entityId, std::memory_order_relaxed);
+    g_mountTicks.fetch_add(1, std::memory_order_relaxed);
+
+    // A mounted wolf is driven by its rider, not by the trail-behind rule:
+    // the follow loop would otherwise drag the player along behind it.
+    FollowRemove(entityId);
+
+    WM_MOD_LOG("[wolfmount/mount] mounted on entity %u (slot %d, stride %u); "
+               "player %u will inherit its transform",
+               entityId, slot, stride, player);
+    return true;
+}
+
+bool Dismount() {
+    const uint32_t id = g_mountedId.exchange(0, std::memory_order_relaxed);
+    if (id == 0) {
+        WM_MOD_LOG("[wolfmount/mount] not mounted");
+        return false;
+    }
+    WM_MOD_LOG("[wolfmount/mount] dismounted from entity %u", id);
+    return true;
+}
+
+int MountTick() {
+    const uint32_t id = g_mountedId.load(std::memory_order_relaxed);
+    if (id == 0) return 0;
+    if (!HasManager()) return 0;
+
+    g_mountTicks.fetch_add(1, std::memory_order_relaxed);
+
+    // The wolf may have died or been unloaded with its cell while we sat on it.
+    // Dropping the mount here is the only safe response: there is nothing left
+    // to copy, and staying "mounted" would freeze the player in place.
+    mgr::EntityRef ref;
+    if (!Lookup(id, &ref)) {
+        WM_MOD_LOG("[wolfmount/mount] entity %u is no longer live; dropping "
+                   "the mount", id);
+        g_mountedId.store(0, std::memory_order_relaxed);
+        return 0;
+    }
+
+    uint16_t stride = 0;
+    const int slot = FindTransformSlotEx(id, &stride);
+    if (slot < 0) {
+        WM_MOD_LOG("[wolfmount/mount] entity %u lost its transform slot; "
+                   "dropping the mount", id);
+        g_mountedId.store(0, std::memory_order_relaxed);
+        return 0;
+    }
+
+    const uintptr_t addr = mgr::SlotAddressOf(ref, slot);
+    if (!addr) return 0;
+
+    double wx = 0, wy = 0, wz = 0;
+    if (stride == kTransformF32Size) {
+        float f[3] = {0, 0, 0};
+        if (!layout::Read(addr, f, sizeof(f))) return 0;
+        wx = f[0]; wy = f[1]; wz = f[2];
+    } else {
+        int64_t v[3] = {0, 0, 0};
+        if (!layout::Read(addr, v, sizeof(v))) return 0;
+        wx = layout::FixedToMeters(v[0]);
+        wy = layout::FixedToMeters(v[1]);
+        wz = layout::FixedToMeters(v[2]);
+    }
+
+    // Sit on the back, not inside the wolf's origin.
+    if (!MoveEntity(PlayerEntityId(), wx, wy + kMountHeightMetres, wz)) {
+        return 0;
+    }
+
+    g_mountWrites.fetch_add(1, std::memory_order_relaxed);
+    return 1;
 }
 
 } // namespace wolfmount::entityops

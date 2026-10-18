@@ -46,6 +46,7 @@ void RequestSummon() {}
 namespace wolfmount::mount {
 void TryEnterMount() {}
 void ExitMount() {}
+void SetHasWolf(bool) {}
 } // namespace wolfmount::mount
 
 namespace wolfmount::gamehooks {
@@ -88,7 +89,14 @@ bool FollowAdd(uint32_t) { return false; }
 void FollowRemove(uint32_t) {}
 void FollowClear() {}
 int  FollowCount() { return 0; }
+uint32_t FollowAt(int) { return 0; }
+uint32_t LastFollower() { return 0; }
 int  FollowTick(double, double) { return 0; }
+uint32_t MountedEntity() { return 0; }
+bool MountOnto(uint32_t) { return false; }
+bool Dismount() { return false; }
+bool IsMounted() { return false; }
+int  MountTick() { return 0; }
 int  SpawnFollower(const uint8_t[16], int, double, uint32_t) { return 0; }
 void DumpEntity(uint32_t, int) {}
 void DumpPlayerPosition() {}
@@ -217,7 +225,13 @@ int main() {
 
     CheckEq(Execute("status"), Result::Ok, "status is Ok");
     CheckEq(Execute("summon"), Result::Ok, "summon is Ok");
-    CheckEq(Execute("mount"), Result::Ok, "mount is Ok");
+
+    // With no wolf enrolled and no backend, mounting has nothing to attach to.
+    // It must say so rather than report success -- this is the same honesty
+    // rule the rest of the console follows, and it caught the old version that
+    // returned Ok from a bare state-machine flip.
+    CheckEq(Execute("mount"), Result::BadArguments,
+            "mount with no wolf is BadArguments, not Ok");
     CheckEq(Execute("mount off"), Result::Ok, "mount off is Ok");
 
     // clear empties the scrollback.

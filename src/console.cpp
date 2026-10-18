@@ -328,11 +328,28 @@ Result CmdSummon(const std::vector<std::string>&) {
 
 Result CmdMount(const std::vector<std::string>& a) {
     if (a.size() >= 2 && a[1] == "off") {
-        mount::ExitMount();
-        Emit("mount: exited");
+        if (entityops::Dismount()) mount::ExitMount();
+        else Emit("mount: not mounted");
     } else {
+        // Pick a wolf: the first live follower if there is one, otherwise the
+        // last entity that was ever enrolled (it may be dead, which MountOnto
+        // will report precisely rather than silently).
+        uint32_t wolf = entityops::FollowCount() > 0
+                            ? entityops::FollowAt(0)
+                            : entityops::LastFollower();
+        if (wolf == 0) {
+            Emit("mount: no wolf to ride 鈥?summon one first (press the summon key)");
+            return Result::BadArguments;
+        }
+        if (!entityops::MountOnto(wolf)) {
+            Emit("mount: attaching to entity %u failed (see the log)", wolf);
+            return Result::NotAvailable;
+        }
+        mount::SetHasWolf(true);
         mount::TryEnterMount();
-        Emit("mount: entered (local state machine only; no engine attachment yet)");
+        Emit("mount: riding entity %u 鈥?the player's transform now follows it", wolf);
+        Emit("      camera and seated pose are NOT taken over (no reachable state");
+        Emit("      machine); see docs/TECHNIQUE.md for why");
     }
     return Result::Ok;
 }

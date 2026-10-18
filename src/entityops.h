@@ -244,6 +244,17 @@ void FollowClear();
 // How many entities are currently in the follow set.
 int FollowCount();
 
+// The entity id at `index`, or 0. The follow set is kept compact (a removal
+// moves the last entry into the gap), so every index below FollowCount() is a
+// live id.
+uint32_t FollowAt(int index);
+
+// The last entity that was ever enrolled, even if it has since left the set.
+// Used by the mount button, which has to pick a wolf without a live set: a
+// companion that died or unloaded should still be ridable if it is still
+// resolvable, and 0 means nothing has ever been enrolled.
+uint32_t LastFollower();
+
 // Advance the follow loop by one tick. Call this from the render thread once per
 // frame; it self-throttles, so a per-frame call is safe.
 //
@@ -255,6 +266,48 @@ int FollowCount();
 // the far side of the map would spend the rest of the session catching up, or
 // never survive the trip.
 int FollowTick(double behindMetres, double teleportBeyond);
+
+// ---------------------------------------------------------------------------
+//  Riding
+//
+//  There is no mount feature to switch on either: the reflection table has no
+//  mount/ride/saddle type, and the closest shipped precedents (glider camera,
+//  hookshot takeover) are driven by the engine's own state machine, which we
+//  cannot enter without the ECS program dispatcher.
+//
+//  What we CAN do is the physical half: keep the player's transform on the
+//  wolf's back while mounted. That is what riding looks like from outside --
+//  the wolf moves, the player moves with it, from the wolf's anchor offset.
+//  The camera and the seated pose are not part of this (see mount.cpp), so the
+//  view stays first-person through the player's own head.
+//
+//  While mounted the follow loop is suspended for that entity: a mounted wolf
+//  is driven by the rider, not by the trail-behind rule, or it would drag the
+//  player along behind itself.
+// ---------------------------------------------------------------------------
+
+// Which entity is currently being ridden, or 0 when nobody is mounted.
+uint32_t MountedEntity();
+
+// Attach the player to `entityId`'s back. The entity must be live and must
+// have a readable transform slot. Returns false with a logged reason when it
+// does not, so a failed mount never silently leaves the player floating.
+bool MountOnto(uint32_t entityId);
+
+// Detach. The player keeps whatever position the last tick left them at, which
+// is the wolf's own position -- the natural place to stand after a ride.
+bool Dismount();
+
+// True while the player is attached.
+bool IsMounted();
+
+// Per-frame driver: while mounted, copy the wolf's transform (plus the anchor
+// offset) onto the player. Call once per frame from the render thread; it is
+// a no-op when nobody is mounted.
+//
+// Returns how many frames it actually wrote (0 or 1), which makes it cheap to
+// log and cheap to test.
+int MountTick();
 
 // ---------------------------------------------------------------------------
 //  Diagnostics

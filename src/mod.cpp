@@ -295,6 +295,12 @@ void PollInput() {
     if (entityops::FollowCount() > 0) {
         entityops::FollowTick(8.0, 40.0);
     }
+
+    // Stage 5: the mount. While riding, the player's transform is copied from
+    // the wolf's every frame. This is a no-op unless something is actually
+    // mounted, so it costs one atomic load on the overwhelming majority of
+    // frames.
+    entityops::MountTick();
 }
 
 // ---------------------------------------------------------------------------
@@ -658,13 +664,30 @@ void DrawMenu() {
         ImGui::Text("上狼/下狼: %d / %d 次", ms.enters, ms.exits);
         ImGui::TextDisabled("上次转换: %s", ms.lastTransition);
 
-        // Simulate the state machine so the flow can be exercised in-game.
+        // Mount/dismount. The state machine in mount.cpp owns the transition
+        // bookkeeping; the entity side lives in entityops (MountOnto copies
+        // the wolf's transform onto the player each frame). A failed mount
+        // must NOT be recorded as an enter, or the menu would claim the player
+        // is riding when nothing is attached.
         if (ImGui::SmallButton(ms.mounted ? "下狼" : "上狼")) {
-            if (ms.mounted) wolfmount::mount::ExitMount();
-            else           wolfmount::mount::TryEnterMount();
+            if (ms.mounted) {
+                if (wolfmount::mount::ExitMount()) entityops::Dismount();
+            } else {
+                const uint32_t wolf = entityops::FollowCount() > 0
+                                          ? entityops::FollowAt(0)
+                                          : entityops::LastFollower();
+                if (wolf == 0) {
+                    g_lastAction = "没有可骑的狼(先召唤一只)";
+                } else if (entityops::MountOnto(wolf)) {
+                    wolfmount::mount::SetHasWolf(true);
+                    wolfmount::mount::TryEnterMount();
+                } else {
+                    g_lastAction = "上狼失败(详见日志)";
+                }
+            }
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("本地状态机演示;实际挂载需 M6 分发器");
+            ImGui::SetTooltip("把玩家坐标复制到狼背(+1.0 m);相机与坐姿未接管");
     }
 
     // ---- progress ---------------------------------------------------------
