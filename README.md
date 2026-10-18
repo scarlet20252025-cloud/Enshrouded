@@ -52,8 +52,10 @@ Everything above is a composition of shipped systems.
 | Write an entity's faction (read-back verified) | implemented, **not yet verified in game** |
 | Tame a wolf with the torch | **not implemented** — see below |
 | Summon bound to `Y` | implemented as "spawn from the wolf template", **not yet verified in game** |
-| Riding | **not implemented** — it is a local state machine only |
-| Wolf fights alongside you | **not implemented** |
+| Make the wolf friendly | implemented (one faction byte), **not yet verified in game** |
+| Make the wolf follow you | implemented (our own loop — the engine has no follow), **not yet verified in game** |
+| Riding | implemented as "player transform copied from the wolf", **not yet verified in game** — camera and seated pose are **not** done |
+| Wolf fights alongside you | implemented (faction byte), **not yet verified in game** |
 
 ### Why summon does not re-target a wolf
 
